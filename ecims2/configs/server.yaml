@@ -1,0 +1,23 @@
+app_name: "ECIMS 2.0 Server"
+api_prefix: "/api/v1"
+db_path: "ecims2.db"
+offline_threshold_sec: 120
+request_size_limit_bytes: 1048576
+event_batch_limit: 1000
+
+# Phase 2 baseline behavior:
+# - AUTO: baseline hash auto-updates on FILE_MODIFIED
+# - MANUAL: baseline hash does not auto-update; admin approval endpoint required
+baseline_update_mode: "AUTO"
+
+# If true, server accepts legacy Phase 1 event payloads (missing schema_version)
+# and normalizes them internally to schema_version "1.0".
+allow_legacy_phase1_events: true
+
+# Retention windows (days)
+retention_days_events: 30
+retention_days_alerts: 90
+retention_days_audit: 365
+
+# Local directory (relative to ecims2/) for serialized ML artifacts
+ai_artifact_dir: "ai_artifacts"
