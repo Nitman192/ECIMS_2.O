@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.ecims_agent_state.json
+ecims2/ecims2.db
+ecims2/offline_bundle/wheelhouse/*
+!ecims2/offline_bundle/wheelhouse/.gitkeep

@@ -1,0 +1,8 @@
+# Pinned agent dependency lock for offline installs.
+# Regenerate on an internet-connected machine with: offline_bundle/build_wheels.sh
+certifi==2024.8.30
+charset-normalizer==3.3.2
+idna==3.8
+PyYAML==6.0.2
+requests==2.32.3
+urllib3==2.2.2
