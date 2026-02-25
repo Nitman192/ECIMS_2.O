@@ -1,0 +1,16 @@
+server_url: "https://127.0.0.1:8000"
+agent_name: "endpoint-01"
+hostname: "host-01"
+monitored_paths:
+  - "/tmp"
+scan_interval_sec: 30
+
+# mTLS client auth (use either PEM pair or PFX)
+agent_client_cert_path: "configs/tls/agent.crt"
+agent_client_key_path: "configs/tls/agent.key"
+agent_pfx_path: null
+agent_pfx_password: null
+
+# Server trust + pinning
+server_ca_bundle_path: "configs/tls/server_ca.crt"
+server_cert_pin_sha256: ""

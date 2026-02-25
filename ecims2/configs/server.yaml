@@ -1,0 +1,43 @@
+app_name: "ECIMS 2.0 Server"
+api_prefix: "/api/v1"
+db_path: "ecims2.db"
+offline_threshold_sec: 120
+request_size_limit_bytes: 1048576
+event_batch_limit: 1000
+
+# Phase 2 baseline behavior:
+# - AUTO: baseline hash auto-updates on FILE_MODIFIED
+# - MANUAL: baseline hash does not auto-update; admin approval endpoint required
+baseline_update_mode: "AUTO"
+
+# If true, server accepts legacy Phase 1 event payloads (missing schema_version)
+# and normalizes them internally to schema_version "1.0".
+allow_legacy_phase1_events: true
+
+# Retention windows (days)
+retention_days_events: 30
+retention_days_alerts: 90
+retention_days_audit: 365
+
+# Local directory (relative to ecims2/) for serialized ML artifacts
+ai_artifact_dir: "ai_artifacts"
+
+# Phase 4 offline license file
+license_path: "configs/license.ecims"
+# Optional explicit public key path for signature verification
+license_public_key_path: "server/app/license/public_key.pem"
+
+# Security policy (signed)
+security_policy_path: "configs/security.policy.json"
+security_policy_sig_path: "configs/security.policy.sig"
+
+# mTLS/TLS settings
+mtls_enabled: true
+mtls_required: true
+server_cert_path: "configs/tls/server.crt"
+server_key_path: "configs/tls/server.key"
+client_ca_cert_path: "configs/tls/client_ca.crt"
+tls_min_version: "1.3"
+
+# Admin API token (set via ECIMS_ADMIN_API_TOKEN in production)
+admin_api_token: ""

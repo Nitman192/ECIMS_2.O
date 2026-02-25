@@ -1,0 +1,9 @@
+{
+  "payload": {
+    "org_name": "ECIMS Demo License",
+    "max_agents": 1000,
+    "expiry_date": "2035-12-31",
+    "ai_enabled": true
+  },
+  "signature_b64": "o0pahSfL2fNXmDFoYzvvJbU5TWilJGpVamgGZo5NKFuVjUBucSMJVXuDm25qEYfkqPsQMT2ii8AcTeBCHdwBhdtNDm2Zb/owi+qJfgRNQSI8csg/7Kimc8ugfpEdwoHz2EPs7kyufisSgf4k3bx3MKsJcQU8F4OpOVUgBOejErgaf/v+GxVSzyUyv6TrSao2/U9/VGFgf9F1lsS3s/EUU/ukCUtB2I/X07i49HjE5VKgrc0zJvUp1yg/U3FKTqQyShfYr7HdLheIIFp74wcIzGBtNpeRs++nyfuI7XzMRT7y206QbLlbCxIecb2XT5Ds1fb+PVbQzoC0sWvBvRNtng=="
+}
