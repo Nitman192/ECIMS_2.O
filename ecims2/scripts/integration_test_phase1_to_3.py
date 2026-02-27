@@ -1,172 +1,188 @@
+from __future__ import annotations
+
 import argparse
-import json
 import random
 import string
 import sys
-import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+def fail(message: str) -> None:
+    print(f"FAIL: {message}")
+    raise SystemExit(1)
 
 
-def rand_name(prefix: str = "endpoint") -> str:
-    suffix = "".join(random.choice(string.ascii_lowercase + string.digits) for _ in range(6))
-    return f"{prefix}-{suffix}"
+def rand_suffix(length: int = 8) -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    return "".join(random.choice(alphabet) for _ in range(length))
 
 
-def fail(msg: str, detail: object | None = None) -> None:
-    print("\nFAIL:", msg)
-    if detail is not None:
-        try:
-            print(json.dumps(detail, indent=2))
-        except Exception:
-            print(detail)
-    sys.exit(1)
-
-
-def ok(msg: str) -> None:
-    print("OK:", msg)
+def now_utc_iso(offset_minutes: int = 0) -> str:
+    ts = datetime.now(timezone.utc) + timedelta(minutes=offset_minutes)
+    return ts.isoformat()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--server-url", default="http://127.0.0.1:8000")
+    parser = argparse.ArgumentParser(description="ECIMS integration test across Phase 1->3 APIs")
+    parser.add_argument("--server-url", default="http://127.0.0.1:8000", help="Base server URL")
     args = parser.parse_args()
+
     base = args.server_url.rstrip("/")
 
-    s = requests.Session()
-    s.headers.update({"Content-Type": "application/json"})
-    timeout = 10
+    try:
+        health_resp = requests.get(f"{base}/health", timeout=10)
+    except requests.RequestException as exc:
+        fail(f"health request failed: {exc}")
 
-    # 1) health
-    r = s.get(f"{base}/health", timeout=timeout)
-    if r.status_code != 200:
-        fail("Health check failed", {"status": r.status_code, "body": r.text})
-    ok("/health")
+    if health_resp.status_code != 200:
+        fail(f"/health returned {health_resp.status_code}: {health_resp.text}")
+    print("PASS: /health")
 
-    # 2) register
-    name = rand_name()
-    hostname = rand_name("host")
-    r = s.post(f"{base}/api/v1/agents/register", data=json.dumps({"name": name, "hostname": hostname}), timeout=timeout)
-    if r.status_code != 200:
-        fail("Agent register failed", {"status": r.status_code, "body": r.text})
-    data = r.json()
-    agent_id = data.get("agent_id") or data.get("id") or data.get("agent", {}).get("id") or data.get("agent", {}).get("agent_id")
-    token = data.get("token") or data.get("agent", {}).get("token")
+    before_alerts_resp = requests.get(f"{base}/api/v1/alerts?limit=1000", timeout=15)
+    if before_alerts_resp.status_code != 200:
+        fail(f"could not fetch alerts before test: {before_alerts_resp.status_code} {before_alerts_resp.text}")
+    alerts_before = len(before_alerts_resp.json())
+
+    agent_name = f"integration-agent-{rand_suffix()}"
+    hostname = f"integration-host-{rand_suffix(6)}"
+    register_resp = requests.post(
+        f"{base}/api/v1/agents/register",
+        json={"name": agent_name, "hostname": hostname},
+        timeout=15,
+    )
+    if register_resp.status_code != 200:
+        fail(f"register failed: {register_resp.status_code} {register_resp.text}")
+    register_data = register_resp.json()
+    agent_id = register_data.get("agent_id")
+    token = register_data.get("token")
     if not agent_id or not token:
-        fail("Register response missing agent_id/token", data)
-    ok(f"register agent_id={agent_id}")
+        fail("register response missing agent_id/token")
+    print(f"PASS: register agent_id={agent_id}")
 
-    # 3) heartbeat
-    r = s.post(
+    headers = {"X-ECIMS-TOKEN": token}
+
+    hb_resp = requests.post(
         f"{base}/api/v1/agents/heartbeat",
-        headers={"X-ECIMS-TOKEN": token},
-        data=json.dumps({"agent_id": agent_id}),
-        timeout=timeout,
+        headers=headers,
+        json={"agent_id": agent_id},
+        timeout=15,
     )
-    if r.status_code != 200:
-        fail("Heartbeat failed", {"status": r.status_code, "body": r.text})
-    ok("heartbeat")
+    if hb_resp.status_code != 200:
+        fail(f"heartbeat failed: {hb_resp.status_code} {hb_resp.text}")
+    print("PASS: heartbeat")
 
-    # alerts baseline count
-    r = s.get(f"{base}/api/v1/alerts", timeout=timeout)
-    if r.status_code != 200:
-        fail("Get alerts failed", {"status": r.status_code, "body": r.text})
-    before_alerts = r.json()
-    before_count = len(before_alerts) if isinstance(before_alerts, list) else 0
+    test_path = f"/tmp/ecims-integration-{rand_suffix(6)}.txt"
+    hash_a = "a" * 64
+    hash_b = "b" * 64
 
-    # 4) send 3 events
-    file_path = "C:\\\\ecims_integration\\\\a.txt"
-    events = [
-        {
-            "schema_version": "1.0",
-            "ts": now_iso(),
-            "event_type": "FILE_PRESENT",
-            "file_path": file_path,
-            "sha256": "a" * 64,
-            "details_json": {"source": "integration"},
-        },
-        {
-            "schema_version": "1.0",
-            "ts": now_iso(),
-            "event_type": "FILE_PRESENT",
-            "file_path": file_path,
-            "sha256": "b" * 64,
-            "details_json": {"source": "integration"},
-        },
-        {
-            "schema_version": "1.0",
-            "ts": now_iso(),
-            "event_type": "FILE_DELETED",
-            "file_path": file_path,
-            "sha256": None,
-            "details_json": {"source": "integration"},
-        },
-    ]
+    events_payload = {
+        "agent_id": agent_id,
+        "events": [
+            {
+                "schema_version": "1.0",
+                "ts": now_utc_iso(0),
+                "event_type": "FILE_PRESENT",
+                "file_path": test_path,
+                "sha256": hash_a,
+                "file_size_bytes": 10,
+                "mtime_epoch": None,
+                "user": "integration",
+                "process_name": None,
+                "host_ip": None,
+                "details_json": {"source": "integration"},
+            },
+            {
+                "schema_version": "1.0",
+                "ts": now_utc_iso(1),
+                "event_type": "FILE_PRESENT",
+                "file_path": test_path,
+                "sha256": hash_b,
+                "file_size_bytes": 12,
+                "mtime_epoch": None,
+                "user": "integration",
+                "process_name": None,
+                "host_ip": None,
+                "details_json": {"source": "integration"},
+            },
+            {
+                "schema_version": "1.0",
+                "ts": now_utc_iso(2),
+                "event_type": "FILE_DELETED",
+                "file_path": test_path,
+                "sha256": None,
+                "file_size_bytes": None,
+                "mtime_epoch": None,
+                "user": "integration",
+                "process_name": None,
+                "host_ip": None,
+                "details_json": {"source": "integration"},
+            },
+        ],
+    }
 
-    r = s.post(
+    events_resp = requests.post(
         f"{base}/api/v1/agents/events",
-        headers={"X-ECIMS-TOKEN": token},
-        data=json.dumps({"agent_id": agent_id, "events": events}),
-        timeout=timeout,
+        headers=headers,
+        json=events_payload,
+        timeout=20,
     )
-    if r.status_code != 200:
-        fail("Events ingestion failed", {"status": r.status_code, "body": r.text})
-    ok("events sent")
+    if events_resp.status_code != 200:
+        fail(f"events failed: {events_resp.status_code} {events_resp.text}")
+    print("PASS: events (NEW_FILE, FILE_MODIFIED, FILE_DELETED)")
 
-    # 5) confirm alerts increased
-    time.sleep(0.5)
-    r = s.get(f"{base}/api/v1/alerts", timeout=timeout)
-    if r.status_code != 200:
-        fail("Get alerts failed (after events)", {"status": r.status_code, "body": r.text})
-    after_alerts = r.json()
-    after_count = len(after_alerts) if isinstance(after_alerts, list) else 0
-    if after_count < before_count + 3:
-        fail("Alerts did not increase by expected delta", {"before": before_count, "after": after_count, "alerts": after_alerts})
-    ok("alerts delta >= 3")
+    after_alerts_resp = requests.get(f"{base}/api/v1/alerts?limit=1000", timeout=15)
+    if after_alerts_resp.status_code != 200:
+        fail(f"could not fetch alerts after event submission: {after_alerts_resp.status_code} {after_alerts_resp.text}")
+    alerts_after = len(after_alerts_resp.json())
+    if alerts_after < alerts_before + 3:
+        fail(f"alerts did not increase by >=3 (before={alerts_before}, after={alerts_after})")
+    print("PASS: alert count increased by at least 3")
 
-    # 6) train AI
-    r = s.post(
+    train_resp = requests.post(
         f"{base}/api/v1/ai/train",
-        data=json.dumps({"model_name": "isolation_forest", "model_version": "1.0", "window_minutes": 60, "start_ts": None, "end_ts": None, "params": {}}),
-        timeout=60,
+        json={
+            "model_name": "isolation_forest",
+            "model_version": "1.0",
+            "window_minutes": 60,
+            "start_ts": None,
+            "end_ts": None,
+            "params": {"contamination": 0.1, "random_state": 42},
+        },
+        timeout=30,
     )
-    if r.status_code != 200:
-        fail("AI train failed", {"status": r.status_code, "body": r.text})
-    train = r.json()
-    model_id = train.get("model_id")
+    if train_resp.status_code != 200:
+        fail(f"ai train failed: {train_resp.status_code} {train_resp.text}")
+    train_data = train_resp.json()
+    model_id = train_data.get("model_id")
     if not model_id:
-        fail("Train response missing model_id", train)
-    ok(f"ai train model_id={model_id}")
+        fail("ai train response missing model_id")
+    print(f"PASS: ai train model_id={model_id}")
 
-    # 7) score run
-    r = s.post(
+    score_resp = requests.post(
         f"{base}/api/v1/ai/score/run",
-        data=json.dumps({"model_id": model_id, "end_ts": None, "lookback_windows": 1}),
-        timeout=60,
+        json={"model_id": model_id, "end_ts": None, "lookback_windows": 1},
+        timeout=30,
     )
-    if r.status_code != 200:
-        fail("AI score run failed", {"status": r.status_code, "body": r.text})
-    ok("ai score run")
+    if score_resp.status_code != 200:
+        fail(f"ai score failed: {score_resp.status_code} {score_resp.text}")
+    print("PASS: ai score run")
 
-    # 8) fetch scores
-    r = s.get(f"{base}/api/v1/ai/scores?limit=10", timeout=timeout)
-    if r.status_code != 200:
-        fail("Fetch AI scores failed", {"status": r.status_code, "body": r.text})
-    scores = r.json()
-    if not isinstance(scores, list) or len(scores) < 1:
-        fail("No AI scores returned", scores)
-    ok("ai scores returned")
+    scores_resp = requests.get(f"{base}/api/v1/ai/scores?agent_id={agent_id}&limit=20", timeout=15)
+    if scores_resp.status_code != 200:
+        fail(f"fetch ai scores failed: {scores_resp.status_code} {scores_resp.text}")
+    scores = scores_resp.json()
+    if len(scores) < 1:
+        fail("expected >=1 ai score record")
+    print(f"PASS: ai scores fetched ({len(scores)} records)")
 
-    print("\nPASS: Phase 1→3 integration succeeded.")
-    print(f"- agent_id={agent_id}")
-    print(f"- alerts_before={before_count}, alerts_after={after_count}")
-    print(f"- model_id={model_id}, scores_count={len(scores)}")
+    print("PASS: integration_test_phase1_to_3 complete")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("FAIL: interrupted")
+        sys.exit(1)

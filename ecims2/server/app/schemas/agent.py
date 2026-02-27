@@ -26,3 +26,4 @@ class AgentSummary(BaseModel):
     registered_at: datetime
     last_seen: datetime | None
     status: str
+    agent_revoked: bool

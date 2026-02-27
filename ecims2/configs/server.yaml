@@ -21,3 +21,23 @@ retention_days_audit: 365
 
 # Local directory (relative to ecims2/) for serialized ML artifacts
 ai_artifact_dir: "ai_artifacts"
+
+# Phase 4 offline license file
+license_path: "configs/license.ecims"
+# Optional explicit public key path for signature verification
+license_public_key_path: "server/app/license/public_key.pem"
+
+# Security policy (signed)
+security_policy_path: "configs/security.policy.json"
+security_policy_sig_path: "configs/security.policy.sig"
+
+# mTLS/TLS settings
+mtls_enabled: true
+mtls_required: true
+server_cert_path: "configs/tls/server.crt"
+server_key_path: "configs/tls/server.key"
+client_ca_cert_path: "configs/tls/client_ca.crt"
+tls_min_version: "1.3"
+
+# Admin API token (set via ECIMS_ADMIN_API_TOKEN in production)
+admin_api_token: ""

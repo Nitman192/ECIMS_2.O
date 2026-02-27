@@ -4,7 +4,7 @@ import argparse
 import logging
 import time
 
-from ecims_agent.api_client import ApiClient
+from ecims_agent.api_client import ApiClient, TLSClientConfig
 from ecims_agent.config import load_config
 from ecims_agent.scanner import scan_paths
 from ecims_agent.storage import load_state, save_state
@@ -16,7 +16,19 @@ logger = logging.getLogger("ecims-agent")
 def run(config_path: str) -> None:
     config = load_config(config_path)
     state = load_state()
-    client = ApiClient(config.server_url)
+    client = ApiClient(
+        config.server_url,
+        TLSClientConfig(
+            cert_path=config.agent_client_cert_path,
+            key_path=config.agent_client_key_path,
+            pfx_path=config.agent_pfx_path,
+            pfx_password=config.agent_pfx_password,
+            ca_bundle_path=config.server_ca_bundle_path,
+            server_cert_pin_sha256=config.server_cert_pin_sha256,
+            pinning_required=True,
+            allow_plain_https=False,
+        ),
+    )
 
     if "agent_id" not in state or "token" not in state:
         logger.info("Registering agent with server")

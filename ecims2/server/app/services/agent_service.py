@@ -16,8 +16,8 @@ class AgentService:
         with get_db() as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO agents(name, hostname, token, registered_at, last_seen, status)
-                VALUES(?, ?, ?, ?, ?, ?)
+                INSERT INTO agents(name, hostname, token, registered_at, last_seen, status, agent_revoked, revoked_at, revocation_reason)
+                VALUES(?, ?, ?, ?, ?, ?, 0, NULL, NULL)
                 """,
                 (name.strip(), hostname.strip(), token, now, now, "ONLINE"),
             )
@@ -33,6 +33,81 @@ class AgentService:
                 metadata={"name": name.strip(), "hostname": hostname.strip()},
             )
             return agent_id, token
+
+    @staticmethod
+    def get_agent(agent_id: int) -> dict | None:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id, name, hostname, agent_revoked, revoked_at, revocation_reason FROM agents WHERE id = ?",
+                (agent_id,),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "id": int(row["id"]),
+                "name": row["name"],
+                "hostname": row["hostname"],
+                "agent_revoked": bool(row["agent_revoked"]),
+                "revoked_at": row["revoked_at"],
+                "revocation_reason": row["revocation_reason"],
+            }
+
+    @staticmethod
+    def revoke_agent(agent_id: int, reason: str, actor_id: int | None = None) -> bool:
+        now_iso = utcnow().isoformat()
+        with get_db() as conn:
+            exists = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+            if not exists:
+                return False
+            conn.execute(
+                "UPDATE agents SET agent_revoked = 1, revoked_at = ?, revocation_reason = ? WHERE id = ?",
+                (now_iso, reason.strip(), agent_id),
+            )
+            AuditService.log(
+                conn,
+                actor_type="ADMIN",
+                actor_id=actor_id,
+                action="AGENT_REVOKED",
+                target_type="AGENT",
+                target_id=agent_id,
+                message="Agent certificate access revoked",
+                metadata={"reason": reason.strip()},
+            )
+            return True
+
+    @staticmethod
+    def restore_agent(agent_id: int, actor_id: int | None = None) -> bool:
+        with get_db() as conn:
+            exists = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+            if not exists:
+                return False
+            conn.execute(
+                "UPDATE agents SET agent_revoked = 0, revoked_at = NULL, revocation_reason = NULL WHERE id = ?",
+                (agent_id,),
+            )
+            AuditService.log(
+                conn,
+                actor_type="ADMIN",
+                actor_id=actor_id,
+                action="AGENT_UNREVOKED",
+                target_type="AGENT",
+                target_id=agent_id,
+                message="Agent certificate access restored",
+                metadata={},
+            )
+            return True
+
+    @staticmethod
+    def count_agents() -> int:
+        with get_db() as conn:
+            row = conn.execute("SELECT COUNT(*) AS c FROM agents").fetchone()
+            return int(row["c"] if row else 0)
+
+    @staticmethod
+    def count_revoked_agents() -> int:
+        with get_db() as conn:
+            row = conn.execute("SELECT COUNT(*) AS c FROM agents WHERE agent_revoked = 1").fetchone()
+            return int(row["c"] if row else 0)
 
     @staticmethod
     def validate_agent_token(agent_id: int, token: str) -> bool:
@@ -67,6 +142,7 @@ class AgentService:
                         "registered_at": datetime.fromisoformat(row["registered_at"]),
                         "last_seen": last_seen,
                         "status": status,
+                        "agent_revoked": bool(row["agent_revoked"]),
                     }
                 )
             return result

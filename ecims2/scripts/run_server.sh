@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
-uvicorn server.app.main:app --host 0.0.0.0 --port 8000
+
+# Standard startup (no TLS offload)
+PYTHONPATH=server uvicorn app.main:app --host 0.0.0.0 --port 8000

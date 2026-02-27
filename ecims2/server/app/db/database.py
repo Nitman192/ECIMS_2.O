@@ -17,6 +17,16 @@ def _get_db_path() -> Path:
     return root / configured
 
 
+def _ensure_agent_revocation_columns(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(agents)").fetchall()}
+    if "agent_revoked" not in columns:
+        conn.execute("ALTER TABLE agents ADD COLUMN agent_revoked INTEGER NOT NULL DEFAULT 0")
+    if "revoked_at" not in columns:
+        conn.execute("ALTER TABLE agents ADD COLUMN revoked_at TEXT")
+    if "revocation_reason" not in columns:
+        conn.execute("ALTER TABLE agents ADD COLUMN revocation_reason TEXT")
+
+
 def init_db() -> None:
     db_path = _get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -31,7 +41,10 @@ def init_db() -> None:
                 token TEXT NOT NULL UNIQUE,
                 registered_at TEXT NOT NULL,
                 last_seen TEXT,
-                status TEXT NOT NULL DEFAULT 'UNKNOWN'
+                status TEXT NOT NULL DEFAULT 'UNKNOWN',
+                agent_revoked INTEGER NOT NULL DEFAULT 0,
+                revoked_at TEXT,
+                revocation_reason TEXT
             );
 
             CREATE TABLE IF NOT EXISTS baseline (
@@ -120,6 +133,7 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_ai_models_name_trained ON ai_models(model_name, trained_at);
             """
         )
+        _ensure_agent_revocation_columns(conn)
 
 
 @contextmanager
