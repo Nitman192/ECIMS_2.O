@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 # Hash of licensing_core/loader.py (SHA256). Update during release hardening when source changes.
-EXPECTED_LOADER_SHA256 = "1d9261c076ae1b521a260b0f3f9d647c7ffa6aa774ed733a9bdc25f1190850d1"
+EXPECTED_LOADER_SHA256 = "<NEW_HASH_FROM_CERTUTIL>"
 
 
 def _sha256_file(path: Path) -> str:
