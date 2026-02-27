@@ -71,7 +71,7 @@ pip install -r agent/requirements.txt
 ```bash
 cd ecims2
 source .venv/bin/activate
-PYTHONPATH=server python -m unittest server.tests.test_phase1_smoke server.tests.test_phase2_controls server.tests.test_phase3_ai -v
+PYTHONPATH=server python -m unittest server.tests.test_phase1_smoke server.tests.test_phase2_controls server.tests.test_phase3_ai server.tests.test_storage_crypto server.tests.test_keyring_rotation server.tests.test_tls_mtls -v
 ```
 
 Tests use temporary SQLite files via `ECIMS_DB_PATH` so real `ecims2.db` is not touched.
@@ -81,6 +81,8 @@ Tests use temporary SQLite files via `ECIMS_DB_PATH` so real `ecims2.db` is not 
 
 - Server configuration loading depends on **PyYAML** (`import yaml`).
 - `PyYAML` is explicitly included in `server/requirements.txt` and the offline wheelhouse workflow.
+- `httpx` is required by `fastapi.testclient` for API tests.
+- `cryptography` is required for AES-GCM at-rest token encryption utilities.
 - After any dependency change, refresh offline artifacts on an internet-connected machine:
 
 ```bash

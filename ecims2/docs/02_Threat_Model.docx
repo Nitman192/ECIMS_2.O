@@ -1,1 +1,33 @@
-Placeholder: Threat model document to be authored in formal DOCX format.
+ECIMS 2.0 Threat Model (text placeholder with PR4 additions)
+
+Scope:
+- Server-side monitoring APIs and agent telemetry ingestion.
+- Offline/LAN operational model with optional proxy/TLS termination.
+
+Assets:
+- Agent auth tokens.
+- Telemetry events and alerts.
+- Audit logs.
+- Encryption keyring material.
+- TLS/mTLS certificates and private keys.
+
+Threats and controls:
+1) Token theft from datastore
+   - Control: application-layer AES-GCM token encryption helpers in `server/app/security/storage_crypto.py`.
+   - Control: keyring based key IDs + rotation scripts (`generate_data_key.py`, `rotate_data_key.py`).
+   - Control: plaintext fallback prohibited in production (`ECIMS_ENVIRONMENT=prod`).
+
+2) Stale key usage / key compromise blast radius
+   - Control: keyring with explicit `active_kid`.
+   - Control: key rotation script with historical key retention for decrypt-while-migrating.
+
+3) MITM in internal network paths
+   - Control: TLS context creation helper (`server/app/security/tls.py`).
+   - Control: mTLS helper and CA/bootstrap generation script (`server/app/security/mtls.py`, `scripts/generate_mtls_ca.py`).
+
+4) Secrets leakage through source control
+   - Control: keys are externalized via environment + keyring path, not hard-coded in code.
+
+Residual risk:
+- Operational security depends on secure storage/distribution of keyring files and TLS private keys.
+- Cert/key rotation cadence must be enforced by deployment process.
