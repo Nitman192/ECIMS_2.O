@@ -27,7 +27,7 @@ def _resolve_path(path_str: str) -> str:
     candidate = Path(path_str)
     if candidate.is_absolute():
         return str(candidate)
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[2]
     return str(root / candidate)
 
 
