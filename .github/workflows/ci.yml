@@ -43,6 +43,8 @@ jobs:
       - name: Run full unittest suite
         env:
           PYTHONPATH: server
+          ECIMS_POLICY_MODE: PERMISSIVE
+          ECIMS_LICENSE_TEST_MODE: "1"
         run: |
           cd ecims2
           python -m unittest -v \
