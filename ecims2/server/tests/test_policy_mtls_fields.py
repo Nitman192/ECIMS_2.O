@@ -28,9 +28,6 @@ class TestPolicyMTLSFields(unittest.TestCase):
         self.assertTrue(DEFAULT_POLICY.pinning_required)
         self.assertFalse(DEFAULT_POLICY.allow_tls12)
         self.assertFalse(DEFAULT_POLICY.allow_plain_https)
-        self.assertTrue(DEFAULT_POLICY.data_encryption_required)
-        self.assertFalse(DEFAULT_POLICY.allow_plaintext_exports)
-        self.assertFalse(DEFAULT_POLICY.allow_key_rotation_grace)
 
     def test_invalid_strict_policy_with_tls12_falls_back(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -42,7 +39,6 @@ class TestPolicyMTLSFields(unittest.TestCase):
                 "pinning_required": True,
                 "allow_tls12": True,
                 "allow_plain_https": False,
-                "allow_plaintext_exports": True,
             }
             payload = json.dumps(policy, sort_keys=True, separators=(",", ":")).encode("utf-8")
             sig = key.sign(payload, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.MAX_LENGTH), hashes.SHA256())

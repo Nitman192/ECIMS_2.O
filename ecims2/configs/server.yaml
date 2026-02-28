@@ -41,9 +41,3 @@ tls_min_version: "1.3"
 
 # Admin API token (set via ECIMS_ADMIN_API_TOKEN in production)
 admin_api_token: ""
-
-# Phase 5 storage encryption
-data_encryption_enabled: true
-data_key_path: "server/.ecims_state/data_keyring.json"
-data_key_env: "ECIMS_DATA_KEY_B64"
-key_rotation_grace_days: 0

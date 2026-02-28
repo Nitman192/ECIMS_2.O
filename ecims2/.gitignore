@@ -1,0 +1,14 @@
+# Runtime state
+server/.ecims_state/
+
+# Local databases
+*.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+Thumbs.db
+.DS_Store

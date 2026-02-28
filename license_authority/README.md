@@ -109,19 +109,3 @@ python generate_agent_bundle.py \
   --password "ChangeThisStrongPassword" \
   --out ./out/agent101/agent_101.pfx
 ```
-
-## Phase 5: Data encryption key management (offline)
-
-Generate initial keyring:
-
-```bash
-python generate_data_key.py --out ./out/data_keyring.json --key-id key-001
-```
-
-Rotate keyring (adds new key, keeps old keys for decrypt):
-
-```bash
-python rotate_data_key.py --keyring ./out/data_keyring.json --new-key-id key-002
-```
-
-> Keep this keyring offline and protected. Loss of keys means encrypted ECIMS data cannot be recovered.

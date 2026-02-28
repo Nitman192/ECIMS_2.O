@@ -20,9 +20,6 @@ class SecurityPolicy:
     pinning_required: bool
     allow_tls12: bool
     allow_plain_https: bool
-    data_encryption_required: bool
-    allow_plaintext_exports: bool
-    allow_key_rotation_grace: bool
 
 
 @dataclass
@@ -42,9 +39,6 @@ DEFAULT_POLICY = SecurityPolicy(
     pinning_required=True,
     allow_tls12=False,
     allow_plain_https=False,
-    data_encryption_required=True,
-    allow_plaintext_exports=False,
-    allow_key_rotation_grace=False,
 )
 
 
@@ -65,11 +59,8 @@ def _parse_policy(raw: dict) -> SecurityPolicy | None:
         pinning_required = bool(raw.get("pinning_required", mode == "STRICT"))
         allow_tls12 = bool(raw.get("allow_tls12", False))
         allow_plain_https = bool(raw.get("allow_plain_https", False))
-        data_encryption_required = bool(raw.get("data_encryption_required", mode == "STRICT"))
-        allow_plaintext_exports = bool(raw.get("allow_plaintext_exports", False))
-        allow_key_rotation_grace = bool(raw.get("allow_key_rotation_grace", False))
 
-        if mode == "STRICT" and (allow_tls12 or allow_plain_https or allow_plaintext_exports or allow_key_rotation_grace):
+        if mode == "STRICT" and (allow_tls12 or allow_plain_https):
             return None
         return SecurityPolicy(
             mode=mode,
@@ -81,9 +72,6 @@ def _parse_policy(raw: dict) -> SecurityPolicy | None:
             pinning_required=pinning_required,
             allow_tls12=allow_tls12,
             allow_plain_https=allow_plain_https,
-            data_encryption_required=data_encryption_required,
-            allow_plaintext_exports=allow_plaintext_exports,
-            allow_key_rotation_grace=allow_key_rotation_grace,
         )
     except Exception:
         return None

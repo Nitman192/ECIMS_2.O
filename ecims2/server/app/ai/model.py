@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import statistics
 from dataclasses import dataclass
 from typing import Any
@@ -11,8 +10,6 @@ from sklearn.ensemble import IsolationForest
 from sklearn.svm import OneClassSVM
 
 from app.ai.features import FEATURE_NAMES
-from app.licensing_core.policy_state import get_policy_state
-from app.security.storage_crypto import encrypt_bytes, maybe_decrypt_legacy
 
 
 @dataclass
@@ -96,23 +93,11 @@ def save_bundle(path: str, bundle: TrainedModelBundle) -> None:
         "params": bundle.params,
         "feature_names": FEATURE_NAMES,
     }
-    out = io.BytesIO()
-    joblib.dump(payload, out)
-    plain = out.getvalue()
-    encrypted = encrypt_bytes("ai_artifact", plain)
-    with open(path, "wb") as f:
-        f.write(encrypted)
+    joblib.dump(payload, path)
 
 
 def load_bundle(path: str) -> dict[str, Any]:
-    with open(path, "rb") as f:
-        blob = f.read()
-
-    plaintext, was_encrypted = maybe_decrypt_legacy("ai_artifact", blob)
-    if not was_encrypted and get_policy_state().policy.data_encryption_required:
-        # plaintext compatibility for legacy artifacts: read still allowed, rewrite encrypted on next save
-        pass
-    return joblib.load(io.BytesIO(plaintext))
+    return joblib.load(path)
 
 
 def score_to_risk(score: float, score_min: float, score_max: float) -> float:

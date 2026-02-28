@@ -20,7 +20,6 @@ from app.services.agent_service import AgentService
 from app.services.alert_service import AlertService
 from app.services.event_service import EventService
 from app.security.mtls import require_mtls_client_identity
-from app.security.storage_crypto import get_crypto_status
 from app.services.retention_service import RetentionService
 
 router = APIRouter()
@@ -71,17 +70,6 @@ def get_alerts(limit: int = Query(default=200, ge=1, le=1000)):
 def get_agents():
     settings = get_settings()
     return AgentService.list_agents(settings.offline_threshold_sec)
-
-
-@router.get("/security/status")
-def security_status(_: None = Depends(require_valid_license), __: None = Depends(require_admin_auth)):
-    status = get_crypto_status()
-    return {
-        "encryption_enabled": status.encryption_enabled,
-        "active_key_id": status.active_key_id,
-        "keyring_count": status.keyring_count,
-        "reason": status.reason,
-    }
 
 
 @router.get("/license/status")

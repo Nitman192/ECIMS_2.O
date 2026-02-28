@@ -39,11 +39,6 @@ class Settings(BaseModel):
 
     admin_api_token: str = ""
 
-    data_encryption_enabled: bool = True
-    data_key_path: str = "server/.ecims_state/data_keyring.json"
-    data_key_env: str = "ECIMS_DATA_KEY_B64"
-    key_rotation_grace_days: int = 0
-
 
 def _apply_env_override(raw: dict[str, Any], field: str, env_var: str) -> None:
     value = os.getenv(env_var)
@@ -69,23 +64,12 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "client_ca_cert_path", "ECIMS_CLIENT_CA_CERT_PATH")
     _apply_env_override(raw, "tls_min_version", "ECIMS_TLS_MIN_VERSION")
     _apply_env_override(raw, "admin_api_token", "ECIMS_ADMIN_API_TOKEN")
-    _apply_env_override(raw, "data_key_path", "ECIMS_DATA_KEY_PATH")
-    _apply_env_override(raw, "data_key_env", "ECIMS_DATA_KEY_ENV")
 
     env_mtls_enabled = os.getenv("ECIMS_MTLS_ENABLED")
     if env_mtls_enabled:
         raw["mtls_enabled"] = env_mtls_enabled.strip().lower() in {"1", "true", "yes"}
 
     env_mtls_required = os.getenv("ECIMS_MTLS_REQUIRED")
-
-    env_data_encryption_enabled = os.getenv("ECIMS_DATA_ENCRYPTION_ENABLED")
-    if env_data_encryption_enabled:
-        raw["data_encryption_enabled"] = env_data_encryption_enabled.strip().lower() in {"1", "true", "yes"}
-
-    env_key_rotation_grace_days = os.getenv("ECIMS_KEY_ROTATION_GRACE_DAYS")
-    if env_key_rotation_grace_days:
-        raw["key_rotation_grace_days"] = int(env_key_rotation_grace_days)
-
     if env_mtls_required:
         raw["mtls_required"] = env_mtls_required.strip().lower() in {"1", "true", "yes"}
 

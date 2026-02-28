@@ -131,20 +131,7 @@ class AIService:
             raise ValueError("lookback_windows must be >= 1")
 
         model_record = AIService._load_model_record(model_id)
-        try:
-            bundle = load_bundle(model_record["artifact_path"])
-        except ValueError as exc:
-            with get_db() as conn:
-                AuditService.log(
-                    conn,
-                    actor_type="SYSTEM",
-                    action="DATA_DECRYPT_FAILED",
-                    target_type="AI_MODEL",
-                    target_id=model_id,
-                    message="Failed to decrypt AI artifact",
-                    metadata={"error": str(exc)},
-                )
-            raise
+        bundle = load_bundle(model_record["artifact_path"])
         model = bundle["model"]
         score_min = float(bundle["score_min"])
         score_max = float(bundle["score_max"])
