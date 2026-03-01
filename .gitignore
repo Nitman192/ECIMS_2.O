@@ -5,3 +5,12 @@ __pycache__/
 ecims2/ecims2.db
 ecims2/offline_bundle/wheelhouse/*
 !ecims2/offline_bundle/wheelhouse/.gitkeep
+# Runtime generated folders
+license_authority_gui/config/
+license_authority_gui/exports/
+license_authority_gui/keys/
+license_authority_gui/logs/
+
+# Windows random files
+cd
+netstat
