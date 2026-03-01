@@ -1,6 +1,7 @@
 # License Authority GUI (ECIMS 2.0)
 
 > **Phase 3 status:** Activation bundles, mTLS CA workflows, and data key bundle rotation are implemented.
+> **Phase 2 status:** Desktop PySide6 shell implemented and wired to Phase 1 core services.
 
 ## Offline Security Rules
 
@@ -9,6 +10,9 @@
 - Root and mTLS CA private keys remain encrypted at rest and are never exported.
 - Only public keys and signed artifacts are exportable.
 - All sensitive actions are logged in append-only audit log entries with hash chaining.
+- Root private keys remain encrypted at rest and are never exported.
+- Only public keys and signed artifacts are exportable.
+- All signing actions are logged in an append-only audit log with hash chaining.
 
 ## Storage Layout
 
@@ -51,6 +55,20 @@ license_authority_gui/
 6. **Create activation bundle:** Dashboard → Export Activation Bundle.
 7. **Transfer artifacts:** Copy activation bundle via trusted removable media to the target server environment.
 8. **Verify audit chain:** Run audit verification before and after export operations.
+  keys/      # encrypted root key + public key
+  logs/      # audit_log.jsonl hash-chained entries
+  exports/   # signed artifacts and operator exports
+  config/    # local application settings
+```
+
+## Phase 2 Implemented GUI Pages
+
+- Dashboard: storage path visibility, root key presence, last audit actions.
+- Root Key Management: generate, unlock, lock, fingerprint display, public key export.
+- License Signing: form input, preview canonical payload, confirm + sign, file verification.
+- Revocation: serial entry, signed bundle generation, bundle verification.
+- Audit Log: list entries, verify chain, export copy.
+- mTLS CA Management and Data Key Bundles placeholders marked for Phase 3.
 
 ## Development Run Commands
 
@@ -66,4 +84,7 @@ python -m la_gui
 
 ## Upcoming Phase
 
+## Upcoming Phases
+
+- **Phase 3:** mTLS CA issuance workflows, data key bundle workflows, secure export bundles.
 - **Phase 4:** hardening checklist, PyInstaller packaging guide, final QA.

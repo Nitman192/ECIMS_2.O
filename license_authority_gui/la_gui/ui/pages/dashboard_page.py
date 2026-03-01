@@ -38,7 +38,7 @@ class DashboardPage(QWidget):
 
     def refresh(self) -> None:
         """Refresh status and recent event widgets."""
-        root_exists = self.state.root_private_key_path.exists()
+        root_exists = self.state.storage_paths.root_key_path.exists()
         self._status_label.setText(
             f"Root key file exists: {'Yes' if root_exists else 'No'} | "
             f"Session unlocked: {'Yes' if self.state.is_unlocked else 'No'}"
@@ -88,6 +88,7 @@ class DashboardPage(QWidget):
 
             stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             zip_path = self.state.storage_paths.exports_dir / f"activation_bundle_{stamp}.zip"
+
             ExportBundleService.create_activation_bundle(zip_path, include)
             self.state.audit_logger.append(
                 "activation_bundle_exported",
@@ -99,7 +100,10 @@ class DashboardPage(QWidget):
                 "activation_bundle_verified",
                 {"zip_path": str(zip_path), "ok": ok, "details": details},
             )
-            self.status_callback(f"Activation bundle created: {zip_path.name} | verify={ok}")
+
+            if self.status_callback:
+                self.status_callback(f"Activation bundle created: {zip_path.name} | verify={ok}")
+
             show_info(self, "Activation Bundle", f"Bundle exported to:\n{zip_path}\n\nManifest verified: {ok}")
             self.refresh()
         except Exception as exc:  # noqa: BLE001
@@ -109,7 +113,8 @@ class DashboardPage(QWidget):
         selected = open_json_file(self)
         if selected is not None:
             return selected
-        return self._latest_file("license_*.json")
+        # Matches license.json as well as license_<timestamp>.json
+        return self._latest_file("license*.json")
 
     def _latest_file(self, pattern: str) -> Path | None:
         candidates = sorted(self.state.storage_paths.exports_dir.glob(pattern), key=lambda p: p.stat().st_mtime)

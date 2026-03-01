@@ -1,11 +1,11 @@
 """Main window with sidebar navigation and page stack."""
-
 from __future__ import annotations
 
 from typing import Callable
 
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
