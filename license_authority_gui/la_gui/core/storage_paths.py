@@ -52,6 +52,10 @@ class StoragePaths:
     def latest_data_key_bundle_path(self) -> Path:
         return self.config_dir / "latest_data_key_bundle.json"
 
+    @property
+    def activity_log_path(self) -> Path:
+        return self.config_dir / "audit_log.jsonl"
+
     def ensure_directories(self) -> None:
         """Create all required directories with parent support."""
         for directory in [self.keys_dir, self.logs_dir, self.exports_dir, self.config_dir]:

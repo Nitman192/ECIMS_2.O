@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
+from PySide6.QtCore import QDate
 from PySide6.QtWidgets import (
+    QDateEdit,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -20,10 +22,11 @@ from PySide6.QtWidgets import (
 
 from la_gui.core.canonical_json import canonicalize_json
 from la_gui.core.crypto_service import CryptoService
-from la_gui.core.models import LicensePayload, SignedLicense
 from la_gui.core.license_service import LicenseService
+from la_gui.core.models import LicensePayload, SignedLicense
 from la_gui.ui.helpers import confirm_action, open_json_file, show_error, show_info
 from la_gui.ui.state import SessionState
+from la_gui.ui.style_helpers import card_frame, section_header, set_primary, set_secondary
 
 
 class LicenseSigningPage(QWidget):
@@ -38,8 +41,12 @@ class LicenseSigningPage(QWidget):
         self.customer_input = QLineEdit()
         self.max_agents_input = QLineEdit()
         self.max_agents_input.setPlaceholderText("e.g. 25")
-        self.expires_at_input = QLineEdit()
-        self.expires_at_input.setPlaceholderText("ISO 8601 UTC, e.g. 2030-01-01T00:00:00+00:00")
+
+        self.expires_at_input = QDateEdit()
+        self.expires_at_input.setCalendarPopup(True)
+        self.expires_at_input.setDisplayFormat("yyyy-MM-dd")
+        self.expires_at_input.setDate(QDate.currentDate().addYears(1))
+
         self.server_id_input = QLineEdit()
         self.features_input = QTextEdit()
         self.features_input.setPlaceholderText('{"feature_a": true}')
@@ -48,12 +55,18 @@ class LicenseSigningPage(QWidget):
         self.preview_output.setReadOnly(True)
 
         preview_btn = QPushButton("Preview Payload")
+        preview_btn.setProperty("action_id", "license.preview")
+        set_secondary(preview_btn)
         preview_btn.clicked.connect(self.preview_payload)
 
         sign_btn = QPushButton("Confirm + Sign")
+        sign_btn.setProperty("action_id", "license.sign")
+        set_primary(sign_btn)
         sign_btn.clicked.connect(self.confirm_and_sign)
 
         verify_btn = QPushButton("Verify License File")
+        verify_btn.setProperty("action_id", "license.verify")
+        set_secondary(verify_btn)
         verify_btn.clicked.connect(self.verify_license_file)
 
         form = QFormLayout()
@@ -69,11 +82,19 @@ class LicenseSigningPage(QWidget):
         actions.addWidget(verify_btn)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("<h2>License Signing</h2>"))
-        layout.addLayout(form)
-        layout.addLayout(actions)
-        layout.addWidget(QLabel("Preview (Canonical Payload)"))
-        layout.addWidget(self.preview_output)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        card = card_frame()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(10)
+        card_layout.addWidget(section_header("License Signing"))
+        card_layout.addLayout(form)
+        card_layout.addLayout(actions)
+        card_layout.addWidget(QLabel("Preview (Canonical Payload)"))
+        card_layout.addWidget(self.preview_output)
+        layout.addWidget(card)
 
     def _build_payload(self) -> LicensePayload:
         if not self.state.is_unlocked or self.state.private_key is None:
@@ -86,10 +107,14 @@ class LicenseSigningPage(QWidget):
         if not isinstance(features, dict):
             raise ValueError("Features must be a JSON object.")
 
+        expiry_date = self.expires_at_input.date().toPython()
+        if not isinstance(expiry_date, date):
+            raise ValueError("Expiry date is invalid.")
+        if expiry_date <= date.today():
+            raise ValueError("Expiry must be a future date.")
+
         issued_at = datetime.now(timezone.utc).isoformat()
-        expires_at = self.expires_at_input.text().strip()
-        if not expires_at:
-            raise ValueError("expires_at is required.")
+        expires_at = f"{expiry_date.isoformat()}T00:00:00+00:00"
 
         return LicensePayload(
             serial=str(uuid.uuid4()),
@@ -124,8 +149,7 @@ class LicenseSigningPage(QWidget):
             return
 
         if self.state.settings.confirm_sensitive_actions:
-            ok = confirm_action(self, "Confirm Signing", "Proceed with signing and exporting license artifact to exports/?")
-            if not ok:
+            if not confirm_action(self, "Confirm Signing", "Proceed with signing and exporting license artifact to exports/?"):
                 return
 
         try:

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QApplication
 
+from la_gui.core.activity_log_service import ActivityLogService
 from la_gui.core.audit_log import AuditLogger
 from la_gui.core.settings_service import SettingsService
 from la_gui.core.storage_paths import StoragePaths
@@ -24,12 +25,15 @@ def build_state() -> SessionState:
     storage_paths.ensure_directories()
     settings = SettingsService.load_settings(storage_paths)
     offline_ack = SettingsService.has_offline_ack(storage_paths)
+    current_role = SettingsService.load_current_role(storage_paths)
     return SessionState(
         storage_paths=storage_paths,
         audit_logger=AuditLogger(storage_paths.audit_log_path),
         settings=settings,
+        activity_log=ActivityLogService(storage_paths.activity_log_path),
         app_root=app_root,
         offline_acknowledged=offline_ack,
+        current_role=current_role,
     )
 
 

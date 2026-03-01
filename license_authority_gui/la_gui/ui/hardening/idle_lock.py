@@ -33,6 +33,7 @@ class IdleLockManager(QObject):
         return False
 
     def _on_timeout(self) -> None:
+        self.lock_callback("Idle timeout reached")
         self.lock_callback()
         self.status_callback("Idle timeout reached: key material locked.")
-        self.timer.start(self.idle_seconds * 1000)
+        self.timer.start(self.idle_seconds * 10)

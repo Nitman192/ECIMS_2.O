@@ -6,7 +6,9 @@ from PySide6.QtWidgets import QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPush
 
 from la_gui.core.mtls_service import MTLSService
 from la_gui.ui.helpers import confirm_action, open_pem_file, show_error, show_info
+from la_gui.ui.preview_dialog import confirm_export_preview
 from la_gui.ui.state import SessionState
+from la_gui.ui.style_helpers import card_frame, section_header, set_primary, set_secondary
 
 
 class MTLSCAPage(QWidget):
@@ -27,12 +29,18 @@ class MTLSCAPage(QWidget):
         self.validity_days_input.setValue(365)
 
         generate_btn = QPushButton("Generate mTLS CA")
+        generate_btn.setProperty("action_id", "mtls.ca.generate")
+        set_primary(generate_btn)
         generate_btn.clicked.connect(self.generate_ca)
 
         sign_csr_btn = QPushButton("Sign Agent CSR")
+        sign_csr_btn.setProperty("action_id", "mtls.csr.sign")
+        set_primary(sign_csr_btn)
         sign_csr_btn.clicked.connect(self.sign_csr)
 
         export_chain_btn = QPushButton("Export mTLS Chain")
+        export_chain_btn.setProperty("action_id", "mtls.chain.export")
+        set_secondary(export_chain_btn)
         export_chain_btn.clicked.connect(self.export_chain)
 
         form = QFormLayout()
@@ -45,9 +53,17 @@ class MTLSCAPage(QWidget):
         actions.addWidget(export_chain_btn)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("<h2>mTLS CA Management</h2>"))
-        layout.addLayout(form)
-        layout.addLayout(actions)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        card = card_frame()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(10)
+        card_layout.addWidget(section_header("mTLS CA Management"))
+        card_layout.addLayout(form)
+        card_layout.addLayout(actions)
+        layout.addWidget(card)
 
     def generate_ca(self) -> None:
         """Generate encrypted CA key/cert pair."""
@@ -89,6 +105,9 @@ class MTLSCAPage(QWidget):
     def export_chain(self) -> None:
         """Export mTLS certificate chain to exports."""
         try:
+            destination = self.state.storage_paths.exports_dir / "mtls_chain.pem"
+            if not confirm_export_preview(self, self.state, export_type="mtls_chain_export", destination=destination, items=["mtls_chain.pem", "mtls_ca_cert.pem"]):
+                return
             chain_path = MTLSService.export_chain(self.state.storage_paths)
             self.state.audit_logger.append("mtls_chain_exported", {"chain_path": str(chain_path)})
             self.status_callback(f"mTLS chain exported: {chain_path.name}")

@@ -14,7 +14,9 @@ from PySide6.QtWidgets import (
 
 from la_gui.core.crypto_service import CryptoService
 from la_gui.ui.helpers import confirm_action, show_error, show_info
+from la_gui.ui.preview_dialog import confirm_export_preview
 from la_gui.ui.state import SessionState
+from la_gui.ui.style_helpers import card_frame, section_header, set_primary, set_secondary
 
 
 class RootKeyPage(QWidget):
@@ -36,15 +38,23 @@ class RootKeyPage(QWidget):
         self.fingerprint_label = QLabel("Fingerprint: <none>")
 
         generate_btn = QPushButton("Generate Root Key")
+        generate_btn.setProperty("action_id", "root.generate")
+        set_primary(generate_btn)
         generate_btn.clicked.connect(self.generate_root_key)
 
         unlock_btn = QPushButton("Load/Unlock Root Key")
+        unlock_btn.setProperty("action_id", "root.unlock")
+        set_secondary(unlock_btn)
         unlock_btn.clicked.connect(self.unlock_root_key)
 
         lock_btn = QPushButton("Lock (Purge In-Memory Key)")
+        lock_btn.setProperty("action_id", "root.lock")
+        set_secondary(lock_btn)
         lock_btn.clicked.connect(self.lock_root_key)
 
         export_public_btn = QPushButton("Export Public Key PEM")
+        export_public_btn.setProperty("action_id", "root.export_public")
+        set_secondary(export_public_btn)
         export_public_btn.clicked.connect(self.export_public_key)
 
         form = QFormLayout()
@@ -58,10 +68,18 @@ class RootKeyPage(QWidget):
         actions.addWidget(export_public_btn)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("<h2>Root Key Management</h2>"))
-        layout.addLayout(form)
-        layout.addLayout(actions)
-        layout.addWidget(self.fingerprint_label)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        card = card_frame()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(10)
+        card_layout.addWidget(section_header("Root Key Management"))
+        card_layout.addLayout(form)
+        card_layout.addLayout(actions)
+        card_layout.addWidget(self.fingerprint_label)
+        layout.addWidget(card)
 
     def generate_root_key(self) -> None:
         """Generate and persist encrypted root key and public key."""
@@ -127,6 +145,8 @@ class RootKeyPage(QWidget):
                 show_error(self, "Missing Key", "Public key file not found.")
                 return
             destination = self.state.storage_paths.exports_dir / "la_public_key.pem"
+            if not confirm_export_preview(self, self.state, export_type="public_key_export", destination=destination, items=["la_public_key.pem"]):
+                return
             destination.write_bytes(self.state.root_public_key_path.read_bytes())
             self.state.audit_logger.append("public_key_exported", {"path": str(destination)})
             self.status_callback(f"Public key exported to {destination}")

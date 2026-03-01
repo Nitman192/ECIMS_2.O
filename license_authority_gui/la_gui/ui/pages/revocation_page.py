@@ -19,6 +19,7 @@ from la_gui.core.models import RevocationBundle
 from la_gui.core.revocation_service import RevocationService
 from la_gui.ui.helpers import confirm_action, open_json_file, show_error, show_info
 from la_gui.ui.state import SessionState
+from la_gui.ui.style_helpers import card_frame, section_header, set_primary, set_secondary
 
 
 class RevocationPage(QWidget):
@@ -33,9 +34,13 @@ class RevocationPage(QWidget):
         self.serials_input.setPlaceholderText("Enter one serial per line")
 
         generate_btn = QPushButton("Generate Signed Revocation Bundle")
+        generate_btn.setProperty("action_id", "revocation.sign")
+        set_primary(generate_btn)
         generate_btn.clicked.connect(self.generate_bundle)
 
         verify_btn = QPushButton("Verify Revocation Bundle File")
+        verify_btn.setProperty("action_id", "revocation.verify")
+        set_secondary(verify_btn)
         verify_btn.clicked.connect(self.verify_bundle)
 
         actions = QHBoxLayout()
@@ -43,10 +48,18 @@ class RevocationPage(QWidget):
         actions.addWidget(verify_btn)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("<h2>Revocation</h2>"))
-        layout.addWidget(QLabel("Revoked Serials"))
-        layout.addWidget(self.serials_input)
-        layout.addLayout(actions)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        card = card_frame()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(10)
+        card_layout.addWidget(section_header("Revocation"))
+        card_layout.addWidget(QLabel("Revoked Serials"))
+        card_layout.addWidget(self.serials_input)
+        card_layout.addLayout(actions)
+        layout.addWidget(card)
 
     def generate_bundle(self) -> None:
         """Generate signed revocation bundle and export JSON."""

@@ -9,7 +9,9 @@ from PySide6.QtWidgets import QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidg
 
 from la_gui.core.export_bundle import ExportBundleService
 from la_gui.ui.helpers import confirm_action, open_json_file, show_error, show_info
+from la_gui.ui.preview_dialog import confirm_export_preview
 from la_gui.ui.state import SessionState
+from la_gui.ui.style_helpers import card_frame, section_header, set_primary
 
 
 class DashboardPage(QWidget):
@@ -26,15 +28,25 @@ class DashboardPage(QWidget):
         self._recent_actions.setReadOnly(True)
 
         export_bundle_btn = QPushButton("Export Activation Bundle")
+        export_bundle_btn.setProperty("action_id", "activation.export")
+        set_primary(export_bundle_btn)
         export_bundle_btn.clicked.connect(self.export_activation_bundle)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("<h2>Dashboard</h2>"))
-        layout.addWidget(self._status_label)
-        layout.addWidget(self._paths_label)
-        layout.addWidget(export_bundle_btn)
-        layout.addWidget(QLabel("Recent Audit Actions (last 5)"))
-        layout.addWidget(self._recent_actions)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        card = card_frame()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(10)
+        card_layout.addWidget(section_header("Dashboard"))
+        card_layout.addWidget(self._status_label)
+        card_layout.addWidget(self._paths_label)
+        card_layout.addWidget(export_bundle_btn)
+        card_layout.addWidget(QLabel("Recent Audit Actions (last 5)"))
+        card_layout.addWidget(self._recent_actions)
+        layout.addWidget(card)
 
     def refresh(self) -> None:
         """Refresh status and recent event widgets."""
@@ -90,6 +102,9 @@ class DashboardPage(QWidget):
                 return
             stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             zip_path = self.state.storage_paths.exports_dir / f"activation_bundle_{stamp}.zip"
+            preview_items = [p.name for p in include]
+            if not confirm_export_preview(self, self.state, export_type="activation_bundle", destination=zip_path, items=preview_items):
+                return
             ExportBundleService.create_activation_bundle(zip_path, include)
             self.state.audit_logger.append(
                 "activation_bundle_exported",
@@ -101,10 +116,24 @@ class DashboardPage(QWidget):
                 "activation_bundle_verified",
                 {"zip_path": str(zip_path), "ok": ok, "details": details},
             )
+            self.state.activity_log.append(
+                actor_role=self.state.current_role,
+                mode="Advanced" if self.state.settings.show_advanced_mode else "Standard",
+                action_type="activation.export",
+                outcome="success" if ok else "fail",
+                safe_metadata={"filename": zip_path.name, "verify": ok},
+            )
             self.status_callback(f"Activation bundle created: {zip_path.name} | verify={ok}")
             show_info(self, "Activation Bundle", f"Bundle exported to:\n{zip_path}\n\nManifest verified: {ok}")
             self.refresh()
         except Exception as exc:  # noqa: BLE001
+            self.state.activity_log.append(
+                actor_role=self.state.current_role,
+                mode="Advanced" if self.state.settings.show_advanced_mode else "Standard",
+                action_type="activation.export",
+                outcome="fail",
+                safe_metadata={"error": str(exc)},
+            )
             show_error(self, "Bundle Export Error", str(exc))
 
     def _pick_or_find_license(self) -> Path | None:

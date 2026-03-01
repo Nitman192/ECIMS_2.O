@@ -7,6 +7,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
 
+from la_gui.core.activity_log_service import ActivityLogService
 from la_gui.core.audit_log import AuditLogger
 from la_gui.core.settings_service import AppSettings
 from la_gui.core.storage_paths import StoragePaths
@@ -19,12 +20,15 @@ class SessionState:
     storage_paths: StoragePaths
     audit_logger: AuditLogger
     settings: AppSettings
+    activity_log: ActivityLogService
     app_root: Path
+
     offline_acknowledged: bool = False
     private_key: RSAPrivateKey | None = None
     public_key: RSAPublicKey | None = None
     public_key_fingerprint: str | None = None
     last_action: str = "Ready"
+    current_role: str = "Admin"
 
     @property
     def is_unlocked(self) -> bool:
