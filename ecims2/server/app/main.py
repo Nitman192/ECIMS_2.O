@@ -15,6 +15,7 @@ from app.licensing_core.policy import load_security_policy
 from app.licensing_core.policy_state import set_policy_state
 from app.licensing_core.state import set_license_state
 from app.services.audit_service import AuditService
+from app.services.user_service import UserService
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -88,6 +89,9 @@ def on_startup() -> None:
         public_key_path=public_key_path,
     )
     set_license_state(license_state)
+
+    if UserService.ensure_bootstrap_admin():
+        logger.warning("Default admin bootstrap account created (username=admin). Rotate default password immediately.")
 
     with get_db() as conn:
         AuditService.log(

@@ -38,6 +38,9 @@ class Settings(BaseModel):
     tls_min_version: Literal["1.2", "1.3"] = "1.3"
 
     admin_api_token: str = ""
+    jwt_secret: str = "change-me-in-production"
+    jwt_expiry_minutes: int = Field(default=30, ge=1)
+    bcrypt_rounds: int = Field(default=12, ge=4, le=16)
 
 
 def _apply_env_override(raw: dict[str, Any], field: str, env_var: str) -> None:
@@ -64,6 +67,9 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "client_ca_cert_path", "ECIMS_CLIENT_CA_CERT_PATH")
     _apply_env_override(raw, "tls_min_version", "ECIMS_TLS_MIN_VERSION")
     _apply_env_override(raw, "admin_api_token", "ECIMS_ADMIN_API_TOKEN")
+    _apply_env_override(raw, "jwt_secret", "ECIMS_JWT_SECRET")
+    _apply_env_override(raw, "jwt_expiry_minutes", "ECIMS_JWT_EXPIRY_MINUTES")
+    _apply_env_override(raw, "bcrypt_rounds", "ECIMS_BCRYPT_ROUNDS")
 
     env_mtls_enabled = os.getenv("ECIMS_MTLS_ENABLED")
     if env_mtls_enabled:

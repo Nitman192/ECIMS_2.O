@@ -17,6 +17,23 @@ def _get_db_path() -> Path:
     return root / configured
 
 
+
+
+def _ensure_user_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('ADMIN', 'ANALYST', 'VIEWER')),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+
 def _ensure_agent_revocation_columns(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(agents)").fetchall()}
     if "agent_revoked" not in columns:
@@ -134,6 +151,7 @@ def init_db() -> None:
             """
         )
         _ensure_agent_revocation_columns(conn)
+        _ensure_user_table(conn)
 
 
 @contextmanager
