@@ -34,11 +34,30 @@ def _resolve_path(path_str: str) -> str:
 @app.middleware("http")
 async def request_size_limit(request: Request, call_next):
     content_length = request.headers.get("content-length")
-    if content_length and int(content_length) > settings.request_size_limit_bytes:
-        raise HTTPException(status_code=413, detail="Payload too large")
+
+    if content_length:
+        try:
+            parsed_length = int(content_length)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Content-Length header"
+            )
+
+        if parsed_length > settings.request_size_limit_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail="Payload too large"
+            )
+
     body = await request.body()
+
     if len(body) > settings.request_size_limit_bytes:
-        raise HTTPException(status_code=413, detail="Payload too large")
+        raise HTTPException(
+            status_code=413,
+            detail="Payload too large"
+        )
+
     request._body = body
     return await call_next(request)
 
