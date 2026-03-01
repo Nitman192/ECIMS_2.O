@@ -17,8 +17,6 @@ def _get_db_path() -> Path:
     return root / configured
 
 
-
-
 def _ensure_user_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -34,6 +32,7 @@ def _ensure_user_table(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
 
+
 def _ensure_agent_revocation_columns(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(agents)").fetchall()}
     if "agent_revoked" not in columns:
@@ -44,11 +43,37 @@ def _ensure_agent_revocation_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN revocation_reason TEXT")
 
 
+@contextmanager
+def get_db() -> Generator[sqlite3.Connection, None, None]:
+    """
+    Always open/close a fresh sqlite connection.
+
+    Notes:
+    - check_same_thread=False improves compatibility with TestClient/threaded execution.
+    - explicit close in finally avoids Windows file locking issues in temp dirs.
+    """
+    conn = sqlite3.connect(_get_db_path(), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON;")
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def init_db() -> None:
+    """
+    Initialize DB schema using the same connection lifecycle as get_db()
+    to avoid sqlite file locks on Windows during tests.
+    """
     db_path = _get_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("PRAGMA foreign_keys = ON;")
+
+    with get_db() as conn:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS agents (
@@ -112,7 +137,6 @@ def init_db() -> None:
                 metadata_json TEXT
             );
 
-
             CREATE TABLE IF NOT EXISTS ai_models (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trained_at TEXT NOT NULL,
@@ -152,15 +176,3 @@ def init_db() -> None:
         )
         _ensure_agent_revocation_columns(conn)
         _ensure_user_table(conn)
-
-
-@contextmanager
-def get_db() -> Generator[sqlite3.Connection, None, None]:
-    conn = sqlite3.connect(_get_db_path())
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON;")
-    try:
-        yield conn
-        conn.commit()
-    finally:
-        conn.close()
