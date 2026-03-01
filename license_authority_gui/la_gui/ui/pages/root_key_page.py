@@ -1,0 +1,155 @@
+"""Root key management page."""
+
+from __future__ import annotations
+
+from PySide6.QtWidgets import (
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from la_gui.core.crypto_service import CryptoService
+from la_gui.ui.helpers import confirm_action, show_error, show_info
+from la_gui.ui.preview_dialog import confirm_export_preview
+from la_gui.ui.state import SessionState
+from la_gui.ui.style_helpers import card_frame, section_header, set_primary, set_secondary
+
+
+class RootKeyPage(QWidget):
+    """Handles generate/unlock/lock and public key export actions."""
+
+    def __init__(self, state: SessionState, status_callback):
+        super().__init__()
+        self.state = state
+        self.status_callback = status_callback
+
+        self.passphrase_input = QLineEdit()
+        self.passphrase_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.passphrase_input.setPlaceholderText("Passphrase")
+
+        self.confirm_input = QLineEdit()
+        self.confirm_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.confirm_input.setPlaceholderText("Confirm passphrase")
+
+        self.fingerprint_label = QLabel("Fingerprint: <none>")
+
+        generate_btn = QPushButton("Generate Root Key")
+        generate_btn.setProperty("action_id", "root.generate")
+        set_primary(generate_btn)
+        generate_btn.clicked.connect(self.generate_root_key)
+
+        unlock_btn = QPushButton("Load/Unlock Root Key")
+        unlock_btn.setProperty("action_id", "root.unlock")
+        set_secondary(unlock_btn)
+        unlock_btn.clicked.connect(self.unlock_root_key)
+
+        lock_btn = QPushButton("Lock (Purge In-Memory Key)")
+        lock_btn.setProperty("action_id", "root.lock")
+        set_secondary(lock_btn)
+        lock_btn.clicked.connect(self.lock_root_key)
+
+        export_public_btn = QPushButton("Export Public Key PEM")
+        export_public_btn.setProperty("action_id", "root.export_public")
+        set_secondary(export_public_btn)
+        export_public_btn.clicked.connect(self.export_public_key)
+
+        form = QFormLayout()
+        form.addRow("Passphrase:", self.passphrase_input)
+        form.addRow("Confirm:", self.confirm_input)
+
+        actions = QHBoxLayout()
+        actions.addWidget(generate_btn)
+        actions.addWidget(unlock_btn)
+        actions.addWidget(lock_btn)
+        actions.addWidget(export_public_btn)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
+
+        card = card_frame()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(10)
+        card_layout.addWidget(section_header("Root Key Management"))
+        card_layout.addLayout(form)
+        card_layout.addLayout(actions)
+        card_layout.addWidget(self.fingerprint_label)
+        layout.addWidget(card)
+
+    def generate_root_key(self) -> None:
+        """Generate and persist encrypted root key and public key."""
+        passphrase = self.passphrase_input.text()
+        confirm = self.confirm_input.text()
+        if not passphrase:
+            show_error(self, "Invalid Input", "Passphrase is required.")
+            return
+        if passphrase != confirm:
+            show_error(self, "Invalid Input", "Passphrase confirmation does not match.")
+            return
+
+        try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm Root Key Generation", "Generate a new encrypted root key at keys/la_root_key_encrypted.pem? This will overwrite existing key files."):
+                return
+            artifacts = CryptoService.generate_root_keypair(passphrase)
+            self.state.root_private_key_path.write_bytes(artifacts.encrypted_private_pem)
+            self.state.root_public_key_path.write_bytes(artifacts.public_pem)
+            self.state.public_key_fingerprint = artifacts.public_key_fingerprint
+            self.fingerprint_label.setText(f"Fingerprint: {artifacts.public_key_fingerprint}")
+            self.state.audit_logger.append(
+                "root_key_generated",
+                {"fingerprint": artifacts.public_key_fingerprint},
+            )
+            self.status_callback("Root key generated successfully.")
+            show_info(self, "Success", "Root key generated and stored encrypted.")
+        except Exception as exc:  # noqa: BLE001
+            show_error(self, "Key Generation Error", str(exc))
+
+    def unlock_root_key(self) -> None:
+        """Load encrypted private key and public key into runtime memory."""
+        passphrase = self.passphrase_input.text()
+        if not self.state.root_private_key_path.exists():
+            show_error(self, "Missing Key", "No root key found. Generate key first.")
+            return
+
+        try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm Root Key Unlock", "Load root private key into memory for signing operations?"):
+                return
+            private_pem = self.state.root_private_key_path.read_bytes()
+            public_pem = self.state.root_public_key_path.read_bytes()
+            private_key = CryptoService.load_encrypted_private_key(private_pem, passphrase)
+            public_key = CryptoService.load_public_key(public_pem)
+            self.state.private_key = private_key
+            self.state.public_key = public_key
+            self.state.public_key_fingerprint = CryptoService.public_key_fingerprint(public_pem)
+            self.fingerprint_label.setText(f"Fingerprint: {self.state.public_key_fingerprint}")
+            self.status_callback("Root key unlocked in memory.")
+            show_info(self, "Unlocked", "Root key loaded into memory for signing.")
+        except Exception as exc:  # noqa: BLE001
+            show_error(self, "Unlock Error", str(exc))
+
+    def lock_root_key(self) -> None:
+        """Purge in-memory key state."""
+        self.state.lock()
+        self.status_callback("Root key locked and purged from memory.")
+        show_info(self, "Locked", "Root key removed from memory.")
+
+    def export_public_key(self) -> None:
+        """Export the root public key into exports directory."""
+        try:
+            if not self.state.root_public_key_path.exists():
+                show_error(self, "Missing Key", "Public key file not found.")
+                return
+            destination = self.state.storage_paths.exports_dir / "la_public_key.pem"
+            if not confirm_export_preview(self, self.state, export_type="public_key_export", destination=destination, items=["la_public_key.pem"]):
+                return
+            destination.write_bytes(self.state.root_public_key_path.read_bytes())
+            self.state.audit_logger.append("public_key_exported", {"path": str(destination)})
+            self.status_callback(f"Public key exported to {destination}")
+            show_info(self, "Exported", f"Public key exported to:\n{destination}")
+        except Exception as exc:  # noqa: BLE001
+            show_error(self, "Export Error", str(exc))
