@@ -8,6 +8,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
 
 from la_gui.core.audit_log import AuditLogger
+from la_gui.core.settings_service import AppSettings
 from la_gui.core.storage_paths import StoragePaths
 
 
@@ -17,9 +18,13 @@ class SessionState:
 
     storage_paths: StoragePaths
     audit_logger: AuditLogger
+    settings: AppSettings
+    app_root: Path
+    offline_acknowledged: bool = False
     private_key: RSAPrivateKey | None = None
     public_key: RSAPublicKey | None = None
     public_key_fingerprint: str | None = None
+    last_action: str = "Ready"
 
     @property
     def is_unlocked(self) -> bool:
@@ -40,3 +45,4 @@ class SessionState:
         """Purge in-memory key material."""
         self.private_key = None
         self.public_key = None
+        self.last_action = "Locked"

@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
 
 from la_gui.core.data_key_service import DataKeyService
-from la_gui.ui.helpers import show_error, show_info
+from la_gui.ui.helpers import confirm_action, show_error, show_info
 from la_gui.ui.state import SessionState
 
 
@@ -49,6 +49,8 @@ class DataKeysPage(QWidget):
     def generate_bundle(self) -> None:
         """Generate new data key bundle."""
         try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm Data Key Generation", "Generate new data key bundle and persist in config/ and exports/?"):
+                return
             bundle = DataKeyService.generate_data_key_bundle(self.state.storage_paths)
             self.state.audit_logger.append("data_key_bundle_generated", {"bundle_id": bundle.bundle_id, "key_id": bundle.key_id})
             self.status_callback("Data key bundle generated.")
@@ -60,6 +62,8 @@ class DataKeysPage(QWidget):
     def rotate_bundle(self) -> None:
         """Rotate data key bundle with previous key linkage."""
         try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm Data Key Rotation", "Rotate data key bundle and export updated bundle?"):
+                return
             bundle = DataKeyService.rotate_data_key_bundle(self.state.storage_paths)
             self.state.audit_logger.append(
                 "data_key_bundle_rotated",

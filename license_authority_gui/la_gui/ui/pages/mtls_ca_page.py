@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget
 
 from la_gui.core.mtls_service import MTLSService
-from la_gui.ui.helpers import open_pem_file, show_error, show_info
+from la_gui.ui.helpers import confirm_action, open_pem_file, show_error, show_info
 from la_gui.ui.state import SessionState
 
 
@@ -52,6 +52,8 @@ class MTLSCAPage(QWidget):
     def generate_ca(self) -> None:
         """Generate encrypted CA key/cert pair."""
         try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm CA Generation", "Generate encrypted CA key and certificate in keys/ directory?"):
+                return
             passphrase = self.passphrase_input.text()
             MTLSService.generate_ca(self.state.storage_paths, passphrase)
             self.state.audit_logger.append("mtls_ca_generated", {"cert_path": str(self.state.storage_paths.mtls_ca_cert_path)})
@@ -66,6 +68,8 @@ class MTLSCAPage(QWidget):
         if csr_path is None:
             return
         try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm CSR Signing", "Sign selected CSR and export agent certificate to exports/?"):
+                return
             passphrase = self.passphrase_input.text()
             result = MTLSService.sign_agent_csr(
                 storage_paths=self.state.storage_paths,

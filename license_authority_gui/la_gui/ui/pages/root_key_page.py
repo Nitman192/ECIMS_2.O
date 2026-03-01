@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from la_gui.core.crypto_service import CryptoService
-from la_gui.ui.helpers import show_error, show_info
+from la_gui.ui.helpers import confirm_action, show_error, show_info
 from la_gui.ui.state import SessionState
 
 
@@ -75,6 +75,8 @@ class RootKeyPage(QWidget):
             return
 
         try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm Root Key Generation", "Generate a new encrypted root key at keys/la_root_key_encrypted.pem? This will overwrite existing key files."):
+                return
             artifacts = CryptoService.generate_root_keypair(passphrase)
             self.state.root_private_key_path.write_bytes(artifacts.encrypted_private_pem)
             self.state.root_public_key_path.write_bytes(artifacts.public_pem)
@@ -97,6 +99,8 @@ class RootKeyPage(QWidget):
             return
 
         try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm Root Key Unlock", "Load root private key into memory for signing operations?"):
+                return
             private_pem = self.state.root_private_key_path.read_bytes()
             public_pem = self.state.root_public_key_path.read_bytes()
             private_key = CryptoService.load_encrypted_private_key(private_pem, passphrase)

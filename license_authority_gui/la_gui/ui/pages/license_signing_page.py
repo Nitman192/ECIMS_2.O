@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QTextEdit,
     QVBoxLayout,
@@ -23,7 +22,7 @@ from la_gui.core.canonical_json import canonicalize_json
 from la_gui.core.crypto_service import CryptoService
 from la_gui.core.models import LicensePayload, SignedLicense
 from la_gui.core.license_service import LicenseService
-from la_gui.ui.helpers import open_json_file, show_error, show_info
+from la_gui.ui.helpers import confirm_action, open_json_file, show_error, show_info
 from la_gui.ui.state import SessionState
 
 
@@ -124,13 +123,10 @@ class LicenseSigningPage(QWidget):
             show_error(self, "Locked", "Root key is not unlocked.")
             return
 
-        confirmation = QMessageBox.question(
-            self,
-            "Confirm Signing",
-            "Proceed with signing this license payload?",
-        )
-        if confirmation != QMessageBox.StandardButton.Yes:
-            return
+        if self.state.settings.confirm_sensitive_actions:
+            ok = confirm_action(self, "Confirm Signing", "Proceed with signing and exporting license artifact to exports/?")
+            if not ok:
+                return
 
         try:
             signed = LicenseService.sign_license(self._pending_payload, self.state.private_key)

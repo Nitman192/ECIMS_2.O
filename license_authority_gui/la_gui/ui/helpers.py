@@ -17,6 +17,12 @@ def show_info(parent: QWidget, title: str, message: str) -> None:
     QMessageBox.information(parent, title, message)
 
 
+def confirm_action(parent: QWidget, title: str, message: str) -> bool:
+    """Show a Yes/No confirmation dialog."""
+    result = QMessageBox.question(parent, title, message)
+    return result == QMessageBox.StandardButton.Yes
+
+
 def open_json_file(parent: QWidget) -> Path | None:
     """Open a JSON file dialog and return selected path."""
     file_name, _ = QFileDialog.getOpenFileName(parent, "Select JSON file", str(Path.home()), "JSON Files (*.json)")

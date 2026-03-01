@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from la_gui.core.crypto_service import CryptoService
 from la_gui.core.models import RevocationBundle
 from la_gui.core.revocation_service import RevocationService
-from la_gui.ui.helpers import open_json_file, show_error, show_info
+from la_gui.ui.helpers import confirm_action, open_json_file, show_error, show_info
 from la_gui.ui.state import SessionState
 
 
@@ -60,6 +60,8 @@ class RevocationPage(QWidget):
             return
 
         try:
+            if self.state.settings.confirm_sensitive_actions and not confirm_action(self, "Confirm Revocation Signing", "Sign and export revocation bundle to exports/?"):
+                return
             bundle = RevocationService.create_bundle(serials, self.state.private_key)
             destination = self.state.storage_paths.exports_dir / f"revocation_{bundle.issued_at.replace(':', '-')}.json"
             destination.write_text(json.dumps(asdict(bundle), indent=2, sort_keys=True), encoding="utf-8")
