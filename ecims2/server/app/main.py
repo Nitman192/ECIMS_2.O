@@ -58,11 +58,15 @@ def on_startup() -> None:
     )
     set_policy_state(policy_state)
 
+    configured_public_key_path = _resolve_path(settings.license_public_key_path)
     override_pub = os.getenv("ECIMS_LICENSE_PUBLIC_KEY_PATH")
-    pub_override = _resolve_path(override_pub) if (override_pub and policy_state.policy.allow_key_override) else None
+    if override_pub and policy_state.policy.allow_key_override:
+        public_key_path = _resolve_path(override_pub)
+    else:
+        public_key_path = configured_public_key_path
     license_state = load_license(
         license_path=_resolve_path(settings.license_path),
-        public_key_path=pub_override,
+        public_key_path=public_key_path,
     )
     set_license_state(license_state)
 
