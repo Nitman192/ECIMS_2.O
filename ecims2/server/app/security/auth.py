@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-import crypt
+import bcrypt
 import hashlib
 import hmac
 import json
@@ -25,17 +25,23 @@ def _b64url_decode(raw: str) -> bytes:
 
 def hash_password(password: str) -> str:
     settings = get_settings()
-    if hasattr(crypt, "METHOD_BLOWFISH"):
-        salt = crypt.mksalt(crypt.METHOD_BLOWFISH, rounds=max(16, settings.bcrypt_rounds))
-        hashed = crypt.crypt(password, salt)
-        if hashed:
-            return hashed
-    raise RuntimeError("bcrypt hashing is unavailable in this runtime")
+    rounds = max(12, int(getattr(settings, "bcrypt_rounds", 12) or 12))
+
+    if not isinstance(password, str) or not password:
+        raise ValueError("password required")
+
+    salt = bcrypt.gensalt(rounds)
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    computed = crypt.crypt(password, password_hash)
-    return secrets.compare_digest(computed or "", password_hash)
+    if not password or not password_hash:
+        return False
+    try:
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def create_access_token(*, user_id: int, username: str, role: str) -> str:
@@ -49,8 +55,15 @@ def create_access_token(*, user_id: int, username: str, role: str) -> str:
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=settings.jwt_expiry_minutes)).timestamp()),
     }
-    signing_input = f"{_b64url_encode(json.dumps(header, separators=(',', ':')).encode('utf-8'))}.{_b64url_encode(json.dumps(payload, separators=(',', ':')).encode('utf-8'))}"
-    sig = hmac.new(settings.jwt_secret.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
+    signing_input = (
+        f"{_b64url_encode(json.dumps(header, separators=(',', ':')).encode('utf-8'))}."
+        f"{_b64url_encode(json.dumps(payload, separators=(',', ':')).encode('utf-8'))}"
+    )
+    sig = hmac.new(
+        settings.jwt_secret.encode("utf-8"),
+        signing_input.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
     return f"{signing_input}.{_b64url_encode(sig)}"
 
 
@@ -60,7 +73,11 @@ def decode_access_token(token: str) -> dict:
     if len(parts) != 3:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     signing_input = f"{parts[0]}.{parts[1]}"
-    expected_sig = hmac.new(settings.jwt_secret.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
+    expected_sig = hmac.new(
+        settings.jwt_secret.encode("utf-8"),
+        signing_input.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
     token_sig = _b64url_decode(parts[2])
     if not secrets.compare_digest(expected_sig, token_sig):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
