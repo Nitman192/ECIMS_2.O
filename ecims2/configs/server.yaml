@@ -41,3 +41,8 @@ tls_min_version: "1.3"
 
 # Admin API token (set via ECIMS_ADMIN_API_TOKEN in production)
 admin_api_token: ""
+
+# Authentication settings
+jwt_secret: "change-me-in-production"
+jwt_expiry_minutes: 30
+bcrypt_rounds: 12

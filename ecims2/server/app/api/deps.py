@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
 from app.db.database import get_db
 from app.licensing_core.state import get_license_state
+from app.models.user import UserRole
+from app.security.auth import decode_access_token
 from app.services.agent_service import AgentService
 from app.services.audit_service import AuditService
+from app.services.user_service import UserService
+
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def validate_token(agent_id: int, x_ecims_token: str = Header(default="")) -> None:
@@ -71,3 +77,31 @@ def require_admin_auth(x_ecims_admin_token: str = Header(default="")) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin API disabled")
     if x_ecims_admin_token != expected:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token")
+
+
+def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> dict:
+    if credentials is None or credentials.scheme.lower() != "bearer" or not credentials.credentials:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+
+    payload = decode_access_token(credentials.credentials)
+    try:
+        user_id = int(payload.get("sub", ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token subject") from exc
+
+    user = UserService.get_by_id(user_id)
+    if not user or not user["is_active"]:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User inactive or not found")
+    return user
+
+
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user["role"] != UserRole.ADMIN.value:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    return user
+
+
+def require_analyst_or_admin(user: dict = Depends(get_current_user)) -> dict:
+    if user["role"] not in {UserRole.ADMIN.value, UserRole.ANALYST.value}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Analyst or Admin role required")
+    return user
