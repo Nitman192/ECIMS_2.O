@@ -1,0 +1,39 @@
+"""UI helper utilities."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
+
+
+def show_error(parent: QWidget, title: str, message: str) -> None:
+    """Show a critical error dialog."""
+    QMessageBox.critical(parent, title, message)
+
+
+def show_info(parent: QWidget, title: str, message: str) -> None:
+    """Show an informational dialog."""
+    QMessageBox.information(parent, title, message)
+
+
+def confirm_action(parent: QWidget, title: str, message: str) -> bool:
+    """Show a Yes/No confirmation dialog."""
+    result = QMessageBox.question(parent, title, message)
+    return result == QMessageBox.StandardButton.Yes
+
+
+def open_json_file(parent: QWidget) -> Path | None:
+    """Open a JSON file dialog and return selected path."""
+    file_name, _ = QFileDialog.getOpenFileName(parent, "Select JSON file", str(Path.home()), "JSON Files (*.json)")
+    if not file_name:
+        return None
+    return Path(file_name)
+
+
+def open_pem_file(parent: QWidget, title: str = "Select PEM file") -> Path | None:
+    """Open a PEM file dialog and return selected path."""
+    file_name, _ = QFileDialog.getOpenFileName(parent, title, str(Path.home()), "PEM Files (*.pem)")
+    if not file_name:
+        return None
+    return Path(file_name)
