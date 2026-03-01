@@ -1,5 +1,4 @@
 """Main window with sidebar navigation and page stack."""
-
 from __future__ import annotations
 
 from typing import Callable
@@ -16,8 +15,9 @@ from PySide6.QtWidgets import (
 
 from la_gui.ui.pages.audit_log_page import AuditLogPage
 from la_gui.ui.pages.dashboard_page import DashboardPage
+from la_gui.ui.pages.data_keys_page import DataKeysPage
 from la_gui.ui.pages.license_signing_page import LicenseSigningPage
-from la_gui.ui.pages.placeholder_page import PlaceholderPage
+from la_gui.ui.pages.mtls_ca_page import MTLSCAPage
 from la_gui.ui.pages.revocation_page import RevocationPage
 from la_gui.ui.pages.root_key_page import RootKeyPage
 from la_gui.ui.state import SessionState
@@ -40,19 +40,19 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
 
-        self.dashboard_page = DashboardPage(state)
+        self.dashboard_page = DashboardPage(state, self.show_status)
         self.root_key_page = RootKeyPage(state, self.show_status)
         self.license_page = LicenseSigningPage(state, self.show_status)
+        self.mtls_page = MTLSCAPage(state, self.show_status)
+        self.data_key_page = DataKeysPage(state, self.show_status)
         self.revocation_page = RevocationPage(state, self.show_status)
         self.audit_page = AuditLogPage(state, self.show_status)
-        self.mtls_placeholder = PlaceholderPage("mTLS CA Management")
-        self.data_key_placeholder = PlaceholderPage("Data Key Bundles")
 
         self._add_page("Dashboard", self.dashboard_page)
         self._add_page("Root Key Management", self.root_key_page)
         self._add_page("License Signing", self.license_page)
-        self._add_page("mTLS CA Management", self.mtls_placeholder)
-        self._add_page("Data Key Bundles", self.data_key_placeholder)
+        self._add_page("mTLS CA Management", self.mtls_page)
+        self._add_page("Data Key Bundles", self.data_key_page)
         self._add_page("Revocation", self.revocation_page)
         self._add_page("Audit Log", self.audit_page)
 

@@ -23,3 +23,11 @@ def open_json_file(parent: QWidget) -> Path | None:
     if not file_name:
         return None
     return Path(file_name)
+
+
+def open_pem_file(parent: QWidget, title: str = "Select PEM file") -> Path | None:
+    """Open a PEM file dialog and return selected path."""
+    file_name, _ = QFileDialog.getOpenFileName(parent, title, str(Path.home()), "PEM Files (*.pem)")
+    if not file_name:
+        return None
+    return Path(file_name)
