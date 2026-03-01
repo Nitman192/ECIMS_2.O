@@ -1,4 +1,4 @@
-"""Tests for settings and UI state persistence."""
+"""Tests for settings, offline acknowledgement, and UI state persistence."""
 
 from __future__ import annotations
 

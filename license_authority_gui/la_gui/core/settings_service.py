@@ -1,4 +1,4 @@
-"""Application settings and UI state persistence."""
+"""Application settings, UI state, and offline acknowledgement persistence."""
 
 from __future__ import annotations
 
@@ -22,17 +22,7 @@ class AppSettings:
 class SettingsService:
     """Load/store app safety settings and runtime UI state."""
 
-    @staticmethod
-    def _load_ui_state(storage_paths: StoragePaths) -> dict[str, object]:
-        path = SettingsService.ui_state_path(storage_paths)
-        if not path.exists():
-            return {}
-        return json.loads(path.read_text(encoding="utf-8"))
-
-    @staticmethod
-    def _save_ui_state(storage_paths: StoragePaths, payload: dict[str, object]) -> None:
-        path = SettingsService.ui_state_path(storage_paths)
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    # ---------- Paths ----------
 
     @staticmethod
     def settings_path(storage_paths: StoragePaths) -> Path:
@@ -46,15 +36,41 @@ class SettingsService:
     def ui_state_path(storage_paths: StoragePaths) -> Path:
         return storage_paths.config_dir / "ui_state.json"
 
+    # ---------- Internal helpers ----------
+
+    @staticmethod
+    def _load_ui_state(storage_paths: StoragePaths) -> dict[str, object]:
+        path = SettingsService.ui_state_path(storage_paths)
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            # Corrupt or partial file -> start fresh (UI-only state)
+            return {}
+
+    @staticmethod
+    def _save_ui_state(storage_paths: StoragePaths, payload: dict[str, object]) -> None:
+        storage_paths.config_dir.mkdir(parents=True, exist_ok=True)
+        path = SettingsService.ui_state_path(storage_paths)
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+    # ---------- App settings ----------
+
     @staticmethod
     def load_settings(storage_paths: StoragePaths) -> AppSettings:
         path = SettingsService.settings_path(storage_paths)
         if not path.exists():
             settings = AppSettings()
+            storage_paths.config_dir.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(asdict(settings), indent=2, sort_keys=True), encoding="utf-8")
             return settings
 
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            raw = {}
+
         return AppSettings(
             require_offline_ack=bool(raw.get("require_offline_ack", True)),
             show_advanced_mode=bool(raw.get("show_advanced_mode", True)),
@@ -64,27 +80,34 @@ class SettingsService:
 
     @staticmethod
     def save_settings(storage_paths: StoragePaths, settings: AppSettings) -> None:
+        storage_paths.config_dir.mkdir(parents=True, exist_ok=True)
         path = SettingsService.settings_path(storage_paths)
         path.write_text(json.dumps(asdict(settings), indent=2, sort_keys=True), encoding="utf-8")
+
+    # ---------- Offline acknowledgement ----------
 
     @staticmethod
     def has_offline_ack(storage_paths: StoragePaths) -> bool:
         path = SettingsService.offline_ack_path(storage_paths)
         if not path.exists():
             return False
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
         return bool(raw.get("acknowledged", False))
 
     @staticmethod
     def write_offline_ack(storage_paths: StoragePaths) -> None:
+        storage_paths.config_dir.mkdir(parents=True, exist_ok=True)
         path = SettingsService.offline_ack_path(storage_paths)
         path.write_text(json.dumps({"acknowledged": True}, indent=2, sort_keys=True), encoding="utf-8")
+
+    # ---------- UI state: navigation ----------
 
     @staticmethod
     def load_last_opened_page(storage_paths: StoragePaths) -> str | None:
         raw = SettingsService._load_ui_state(storage_paths)
-        if not raw:
-            return None
         value = raw.get("last_opened_page")
         return value if isinstance(value, str) and value else None
 
@@ -94,11 +117,11 @@ class SettingsService:
         raw["last_opened_page"] = page_name
         SettingsService._save_ui_state(storage_paths, raw)
 
+    # ---------- UI state: roles ----------
+
     @staticmethod
     def load_current_role(storage_paths: StoragePaths) -> str:
         raw = SettingsService._load_ui_state(storage_paths)
-        if not raw:
-            return "Admin"
         value = raw.get("current_role")
         return value if isinstance(value, str) and value else "Admin"
 
@@ -107,6 +130,8 @@ class SettingsService:
         raw = SettingsService._load_ui_state(storage_paths)
         raw["current_role"] = role
         SettingsService._save_ui_state(storage_paths, raw)
+
+    # ---------- UI state: export preview preferences ----------
 
     @staticmethod
     def is_preview_disabled(storage_paths: StoragePaths, role: str, export_type: str) -> bool:
@@ -120,7 +145,9 @@ class SettingsService:
         return bool(role_map.get(export_type, False))
 
     @staticmethod
-    def set_preview_disabled(storage_paths: StoragePaths, role: str, export_type: str, disabled: bool) -> None:
+    def set_preview_disabled(
+        storage_paths: StoragePaths, role: str, export_type: str, disabled: bool
+    ) -> None:
         raw = SettingsService._load_ui_state(storage_paths)
         prefs = raw.get("preview_preferences", {})
         if not isinstance(prefs, dict):
