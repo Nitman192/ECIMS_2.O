@@ -1,8 +1,10 @@
 # License Authority GUI (ECIMS 2.0)
 
-> **Phase 4 status:** Hardening, diagnostics export, packaging assets, and Quick Start wizard mode are implemented.
-> **Phase 3 status:** Activation bundles, mTLS CA workflows, and data key bundle rotation are implemented.
-> **Phase 2 status:** Desktop PySide6 shell implemented and wired to Phase 1 core services.
+> **Phase 4 status:** Hardening layer, diagnostics export, packaging assets, and Quick Start (Wizard) mode implemented.  
+> **Phase 3 status:** Activation bundles, mTLS CA workflows, and data key bundle rotation implemented.  
+> **Phase 2 status:** Desktop PySide6 GUI wired to Phase 1 core cryptographic services.
+
+---
 
 ## Offline Security Rules
 
@@ -11,133 +13,148 @@
 - Root and mTLS CA private keys remain encrypted at rest and are never exported.
 - Only public keys and signed artifacts are exportable.
 - All sensitive actions are logged in append-only audit log entries with hash chaining.
-- Root private keys remain encrypted at rest and are never exported.
-- Only public keys and signed artifacts are exportable.
-- All signing actions are logged in an append-only audit log with hash chaining.
+
+---
 
 ## Storage Layout
-
-```text
 license_authority_gui/
-  keys/      # encrypted LA root key, encrypted mTLS CA key, public certs
-  logs/      # audit_log.jsonl hash-chained entries
-  exports/   # signed artifacts and activation bundles
-  config/    # app_settings.json, offline_ack.json, latest_data_key_bundle.json
-```
+keys/ (encrypted LA root key, encrypted mTLS CA key, public certs)
+logs/ (audit_log.jsonl hash-chained entries)
+exports/ (signed artifacts and activation bundles)
+config/ (app_settings.json, offline_ack.json, latest_data_key_bundle.json)
 
-## Phase 4 Hardening + Wizard Mode
+---
 
-### Operator safety controls
-- `config/app_settings.json` is auto-created with defaults:
-  - `require_offline_ack`: true
-  - `show_advanced_mode`: true
-  - `confirm_sensitive_actions`: true
-  - `lock_on_idle_seconds`: 300
-- Offline acknowledgement is enforced (if configured) and persisted in `config/offline_ack.json`.
-- Idle lock monitors keyboard/mouse activity and locks in-memory key state after timeout.
-- Status bar includes a visible **LOCK** button and security indicators.
+# Phase 4 — Hardening + Wizard Mode
 
-### Diagnostics export (offline-safe)
-- Tools → Export Diagnostics generates `exports/diagnostics_<timestamp>.zip`.
-- Includes only non-secret files:
-  - `config/app_settings.json`
-  - `config/offline_ack.json` (if present)
-  - `config/latest_data_key_bundle.json` (if present)
-  - `logs/audit_log.jsonl`
-  - `README.md`
-- `keys/` is never included.
+## Operator Safety Controls
 
-### Quick Start (Wizard)
-- New **Quick Start (Wizard)** page provides guided workflow with progress indicator.
-- If `show_advanced_mode=false`, app shows only Wizard + Audit Log.
-- If true, Wizard is shown alongside all advanced pages.
+config/app_settings.json is auto-created with defaults:
 
-## Activation Bundle Artifacts
+- require_offline_ack: true
+- show_advanced_mode: true
+- confirm_sensitive_actions: true
+- lock_on_idle_seconds: 300
 
-`activation_bundle_<timestamp>.zip` includes:
-- required: `license.json`, `la_public_key.pem`
-- optional: `mtls_ca_cert.pem`, `mtls_chain.pem`, `revocation.json`, `data_key_bundle.json`
-- `manifest.json` with file SHA-256 values + `manifest_sha256`
+Security features:
 
-## Operational SOP
+- Offline acknowledgement enforced and persisted in config/offline_ack.json
+- Idle lock monitors keyboard/mouse activity and locks in-memory key state after timeout
+- Status bar includes visible LOCK button and security indicators
+- Sensitive actions require confirmation (configurable policy)
 
-1. Acknowledge offline policy on startup.
+---
+
+## Diagnostics Export (Offline-Safe)
+
+Tools → Export Diagnostics generates:
+
+exports/diagnostics_<timestamp>.zip
+
+Includes only non-secret files:
+
+- config/app_settings.json
+- config/offline_ack.json (if present)
+- config/latest_data_key_bundle.json (if present)
+- logs/audit_log.jsonl
+- README.md
+
+keys/ directory is never included.
+
+---
+
+## Quick Start (Wizard)
+
+- Guided workflow with progress indicator and prerequisite gating
+- Each step shows status: OK / Missing / Locked / Needs Input
+- If show_advanced_mode=false, app shows only Wizard + Audit Log
+- If true, full advanced navigation remains available
+
+---
+
+# Phase 3 — Core Operational Features
+
+## Activation Export Bundles
+
+Dashboard → Export Activation Bundle
+
+Creates:
+
+activation_bundle_<timestamp>.zip
+
+Includes:
+
+- Required: license.json, la_public_key.pem
+- Optional: mtls_ca_cert.pem, mtls_chain.pem, revocation.json, data_key_bundle.json
+- manifest.json with SHA-256 hashes + manifest_sha256
+
+Manifest is verified immediately after bundle creation.
+
+---
+
+## mTLS CA Management
+
+- Generate encrypted CA private key + CA certificate in keys/
+- Sign agent CSR PEM files
+- Export:
+  - exports/mtls_chain.pem
+  - exports/mtls_ca_cert.pem
+
+---
+
+## Data Key Bundles
+
+- Generate and rotate data key bundles
+- Latest bundle saved in config/latest_data_key_bundle.json
+- Exported copy saved as exports/data_key_bundle.json
+
+---
+
+# Operational SOP
+
+1. Acknowledge offline policy.
 2. Generate or unlock root key.
 3. Issue license.
-4. Optionally generate mTLS CA and sign agent CSR.
-5. Optionally generate/rotate data key bundle.
-6. Optionally generate revocation bundle.
+4. (Optional) Generate mTLS CA and sign agent CSR.
+5. (Optional) Generate or rotate data key bundle.
+6. (Optional) Generate revocation bundle.
 7. Export activation bundle.
 8. Verify audit chain.
 9. Transfer artifacts using trusted removable media only.
 
-## Packaging
+---
 
-See [PACKAGING.md](./PACKAGING.md) and `packaging/` scripts/spec for Windows PyInstaller builds.
-  config/    # local app settings + latest_data_key_bundle.json
-```
+# Phase 2 — Implemented GUI Pages
 
-## Phase 3 Features
+- Dashboard
+- Root Key Management
+- License Signing
+- Revocation
+- Audit Log
+- mTLS CA Management
+- Data Key Bundles
 
-### 1) Activation export bundles
-- Dashboard includes **Export Activation Bundle**.
-- Outputs `activation_bundle_<timestamp>.zip` to `exports/`.
-- Bundle includes:
-  - required: `license.json`, `la_public_key.pem`
-  - optional: `mtls_ca_cert.pem`, `mtls_chain.pem`, `revocation.json`, `data_key_bundle.json`
-- `manifest.json` includes SHA-256 for each included file and `manifest_sha256` for manifest core fields.
-- Manifest is verified immediately after bundle creation.
+---
 
-### 2) mTLS CA management
-- Generate encrypted CA private key + CA certificate in `keys/`.
-- Sign agent CSR PEM files into agent certificates in `exports/`.
-- Export chain as `exports/mtls_chain.pem` and `exports/mtls_ca_cert.pem`.
+# Development Run Commands
+from repository root
 
-### 3) Data key bundles
-- Generate and rotate data key bundles for server at-rest encryption workflows.
-- Latest bundle is saved in `config/latest_data_key_bundle.json`.
-- Exported copy is saved as `exports/data_key_bundle.json`.
-
-## Operational SOP (Phase 3)
-
-1. **Prepare keys:** Generate/unlock LA root key in Root Key Management.
-2. **Issue license:** Use License Signing page (preview, confirm, sign).
-3. **(Optional) mTLS enrollment:** Generate mTLS CA, then sign each agent CSR.
-4. **(Optional) Data key setup:** Generate initial data key bundle or rotate existing one.
-5. **(Optional) Revocation update:** Generate signed revocation bundle when needed.
-6. **Create activation bundle:** Dashboard → Export Activation Bundle.
-7. **Transfer artifacts:** Copy activation bundle via trusted removable media to the target server environment.
-8. **Verify audit chain:** Run audit verification before and after export operations.
-  keys/      # encrypted root key + public key
-  logs/      # audit_log.jsonl hash-chained entries
-  exports/   # signed artifacts and operator exports
-  config/    # local application settings
-```
-
-## Phase 2 Implemented GUI Pages
-
-- Dashboard: storage path visibility, root key presence, last audit actions.
-- Root Key Management: generate, unlock, lock, fingerprint display, public key export.
-- License Signing: form input, preview canonical payload, confirm + sign, file verification.
-- Revocation: serial entry, signed bundle generation, bundle verification.
-- Audit Log: list entries, verify chain, export copy.
-- mTLS CA Management and Data Key Bundles placeholders marked for Phase 3.
-
-## Development Run Commands
-
-```bash
-# from repository root
 python -m pip install -r license_authority_gui/requirements.txt
 python -m pytest license_authority_gui/tests
 cd license_authority_gui
 python app.py
-# or
+
+or
+
 python -m la_gui
-```
 
-## Upcoming Phase
 
-## Upcoming Phases
+---
 
-- **Phase 3:** mTLS CA issuance workflows, data key bundle workflows, secure export bundles.
-- **Phase 4:** hardening checklist, PyInstaller packaging guide, final QA.
+# Packaging
+
+See PACKAGING.md and the packaging/ directory for:
+
+- PyInstaller spec file
+- Windows build PowerShell script
+- Reproducible packaging instructions
