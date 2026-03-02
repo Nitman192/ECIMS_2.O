@@ -1,6 +1,7 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, useContext, useMemo, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { User } from '../types';
+import { bindAuthHandlers } from '../api/client';
 
 type AuthCtx = {
   token: string | null;
@@ -15,18 +16,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
 
-  const value = useMemo(() => ({
-    token,
-    user,
-    setSession: (nextToken: string, nextUser: User) => {
-      setToken(nextToken);
-      setUser(nextUser);
-    },
-    clearSession: () => {
-      setToken(null);
-      setUser(null);
-    }
-  }), [token, user]);
+  useEffect(() => {
+    bindAuthHandlers(
+      () => token,
+      () => {
+        setToken(null);
+        setUser(null);
+      }
+    );
+  }, [token]);
+
+  const value = useMemo(
+    () => ({
+      token,
+      user,
+      setSession: (nextToken: string, nextUser: User) => {
+        setToken(nextToken);
+        setUser(nextUser);
+      },
+      clearSession: () => {
+        setToken(null);
+        setUser(null);
+      },
+    }),
+    [token, user]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

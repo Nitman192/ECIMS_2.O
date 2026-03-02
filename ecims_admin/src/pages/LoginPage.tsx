@@ -16,11 +16,19 @@ export const LoginPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const login = await AuthApi.login(username, password);
-      const token = login.data.access_token;
-      const me = await AuthApi.me();
-      setSession(token, me.data);
-      navigate('/');
+      const loginRes = await AuthApi.login(username, password);
+const token = loginRes.data.access_token;
+
+//  First store token
+setSession(token, {} as any);   // temporary user
+
+//  Then call /me (now header will include token)
+const me = await AuthApi.me();
+
+//  Update with real user
+setSession(token, me.data);
+
+navigate('/');
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Login failed');
     } finally {
