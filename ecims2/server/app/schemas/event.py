@@ -12,6 +12,12 @@ SCHEMA_VERSION = "1.0"
 class EventType(str, Enum):
     FILE_PRESENT = "FILE_PRESENT"
     FILE_DELETED = "FILE_DELETED"
+    DEVICE_USB_INSERTED = "device.usb.inserted"
+    DEVICE_USB_MASS_STORAGE_DETECTED = "device.usb.mass_storage_detected"
+    DEVICE_USB_BLOCK_APPLIED = "device.usb.block_applied"
+    DEVICE_USB_UNBLOCK_REQUESTED = "device.usb.unblock_requested"
+    DEVICE_USB_UNBLOCK_APPROVED = "device.usb.unblock_approved"
+    DEVICE_USB_UNBLOCK_APPLIED = "device.usb.unblock_applied"
 
 
 class LegacyFileEvent(BaseModel):

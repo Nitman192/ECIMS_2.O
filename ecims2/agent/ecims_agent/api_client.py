@@ -139,3 +139,36 @@ class ApiClient:
         data = response.json()
         logger.info("Events posted: processed=%s alerts=%s", data.get("processed"), data.get("alerts_created"))
         return data
+
+    def get_commands(self, agent_id: int, token: str) -> list[dict]:
+        headers = {"X-ECIMS-TOKEN": token}
+        headers.update(self._client_cert_header())
+        response = self.session.get(
+            f"{self.server_url}/api/v1/agents/{agent_id}/commands",
+            headers=headers,
+            timeout=15,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def ack_command(self, agent_id: int, token: str, command_id: int, *, applied: bool, error: str | None = None) -> None:
+        headers = {"X-ECIMS-TOKEN": token}
+        headers.update(self._client_cert_header())
+        response = self.session.post(
+            f"{self.server_url}/api/v1/agents/{agent_id}/commands/{command_id}/ack",
+            headers=headers,
+            json={"applied": applied, "error": error},
+            timeout=15,
+        )
+        response.raise_for_status()
+
+    def post_device_status(self, agent_id: int, token: str, payload: dict) -> None:
+        headers = {"X-ECIMS-TOKEN": token}
+        headers.update(self._client_cert_header())
+        response = self.session.post(
+            f"{self.server_url}/api/v1/agents/{agent_id}/device/status",
+            headers=headers,
+            json=payload,
+            timeout=15,
+        )
+        response.raise_for_status()

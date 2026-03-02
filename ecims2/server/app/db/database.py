@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Generator
 
 from app.core.config import get_settings
+from app.core.version import SCHEMA_VERSION
+from app.utils.time import utcnow
 
 
 def _get_db_path() -> Path:
@@ -43,6 +45,67 @@ def _ensure_agent_revocation_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE agents ADD COLUMN revocation_reason TEXT")
 
 
+
+
+
+
+def _ensure_agent_device_status_columns(conn: sqlite3.Connection) -> None:
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "agent_device_status" not in tables:
+        return
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_device_status)").fetchall()}
+    if "agent_version" not in columns:
+        conn.execute("ALTER TABLE agent_device_status ADD COLUMN agent_version TEXT")
+
+def _ensure_agent_device_columns(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(agents)").fetchall()}
+    if "device_mode_override" not in columns:
+        conn.execute("ALTER TABLE agents ADD COLUMN device_mode_override TEXT")
+    if "device_tags" not in columns:
+        conn.execute("ALTER TABLE agents ADD COLUMN device_tags TEXT")
+
+
+def _ensure_schema_version_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _get_schema_version(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT version FROM schema_version ORDER BY rowid DESC LIMIT 1").fetchone()
+    if not row:
+        return 0
+    return int(row[0])
+
+
+def _set_schema_version(conn: sqlite3.Connection, version: int) -> None:
+    conn.execute("DELETE FROM schema_version")
+    conn.execute(
+        "INSERT INTO schema_version(version, updated_at) VALUES(?, ?)",
+        (version, utcnow().isoformat()),
+    )
+
+
+def _run_schema_migrations(conn: sqlite3.Connection) -> dict[str, int | bool]:
+    _ensure_schema_version_table(conn)
+    from_version = _get_schema_version(conn)
+    if from_version == 0:
+        # existing DBs without version tracking are treated as v1 baseline
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        from_version = 1 if "agents" in tables else 0
+
+    if from_version < 1:
+        from_version = 1
+
+    # v2 migration is additive and idempotent (handled by init DDL + ensure helpers)
+    _set_schema_version(conn, SCHEMA_VERSION)
+    return {"from_version": from_version, "to_version": SCHEMA_VERSION, "migrated": from_version != SCHEMA_VERSION}
+
 @contextmanager
 def get_db() -> Generator[sqlite3.Connection, None, None]:
     """
@@ -65,7 +128,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
             pass
 
 
-def init_db() -> None:
+def init_db() -> dict[str, int | bool]:
     """
     Initialize DB schema using the same connection lifecycle as get_db()
     to avoid sqlite file locks on Windows during tests.
@@ -149,6 +212,69 @@ def init_db() -> None:
                 training_summary_json TEXT NOT NULL
             );
 
+
+            CREATE TABLE IF NOT EXISTS device_unblock_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id INTEGER NOT NULL,
+                device_id TEXT NOT NULL,
+                vid TEXT NOT NULL,
+                pid TEXT NOT NULL,
+                serial TEXT,
+                justification TEXT NOT NULL,
+                requested_by_user_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                approved_by_user_id INTEGER,
+                requested_at TEXT NOT NULL,
+                approved_at TEXT,
+                expires_at TEXT,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+                FOREIGN KEY (requested_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (approved_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_device_unblock_status ON device_unblock_requests(status, requested_at);
+
+
+
+
+            CREATE TABLE IF NOT EXISTS agent_device_status (
+                agent_id INTEGER PRIMARY KEY,
+                policy_hash_applied TEXT,
+                enforcement_mode TEXT,
+                adapter_status TEXT,
+                last_reconcile_time TEXT,
+                agent_version TEXT,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS device_control_state (
+                key TEXT PRIMARY KEY,
+                value_json TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS device_allow_tokens (
+                token_id TEXT PRIMARY KEY,
+                agent_id INTEGER NOT NULL,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                scope_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ACTIVE',
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_device_allow_tokens_agent_status ON device_allow_tokens(agent_id, status, expires_at);
+            CREATE TABLE IF NOT EXISTS agent_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id INTEGER NOT NULL,
+                type TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                created_at TEXT NOT NULL,
+                applied_at TEXT,
+                error TEXT,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_agent_commands_pending ON agent_commands(agent_id, status, created_at);
             CREATE TABLE IF NOT EXISTS ai_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,
@@ -175,4 +301,8 @@ def init_db() -> None:
             """
         )
         _ensure_agent_revocation_columns(conn)
+        _ensure_agent_device_columns(conn)
         _ensure_user_table(conn)
+        _ensure_agent_device_status_columns(conn)
+        migration = _run_schema_migrations(conn)
+        return migration

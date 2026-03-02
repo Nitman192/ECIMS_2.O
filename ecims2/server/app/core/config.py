@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class Settings(BaseModel):
+    environment: Literal["dev", "test", "prod"] = "dev"
     app_name: str = "ECIMS 2.0 Server"
     api_prefix: str = "/api/v1"
     db_path: str = "ecims2.db"
@@ -29,6 +30,7 @@ class Settings(BaseModel):
 
     security_policy_path: str = "configs/security.policy.json"
     security_policy_sig_path: str = "configs/security.policy.sig"
+    security_policy_public_key_path: str = "configs/security.policy.public.pem"
 
     mtls_enabled: bool = True
     mtls_required: bool = True
@@ -41,6 +43,23 @@ class Settings(BaseModel):
     jwt_secret: str = "change-me-in-production"
     jwt_expiry_minutes: int = Field(default=30, ge=1)
     bcrypt_rounds: int = Field(default=12, ge=4, le=16)
+
+    bootstrap_admin_token: str = ""
+    bootstrap_admin_username: str = ""
+    bootstrap_admin_password: str = ""
+
+    login_rate_limit_count: int = Field(default=100, ge=1)
+    login_rate_limit_window_sec: int = Field(default=60, ge=1)
+    agent_rate_limit_count: int = Field(default=1000, ge=1)
+    agent_rate_limit_window_sec: int = Field(default=60, ge=1)
+
+    device_allow_token_private_key_path: str = "configs/device_allow_token_private.pem"
+    device_allow_token_public_key_path: str = "configs/device_allow_token_public.pem"
+    allow_token_max_duration_minutes: int = Field(default=240, ge=1)
+
+    data_encryption_enabled: bool = False
+    data_key_path: str = "configs/data_keys.json"
+    data_key_env: str = "ECIMS_DATA_KEY_B64"
 
 
 def _apply_env_override(raw: dict[str, Any], field: str, env_var: str) -> None:
@@ -62,6 +81,7 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "license_public_key_path", "ECIMS_LICENSE_PUBLIC_KEY_PATH")
     _apply_env_override(raw, "security_policy_path", "ECIMS_SECURITY_POLICY_PATH")
     _apply_env_override(raw, "security_policy_sig_path", "ECIMS_SECURITY_POLICY_SIG_PATH")
+    _apply_env_override(raw, "security_policy_public_key_path", "ECIMS_SECURITY_POLICY_PUBLIC_KEY_PATH")
     _apply_env_override(raw, "server_cert_path", "ECIMS_SERVER_CERT_PATH")
     _apply_env_override(raw, "server_key_path", "ECIMS_SERVER_KEY_PATH")
     _apply_env_override(raw, "client_ca_cert_path", "ECIMS_CLIENT_CA_CERT_PATH")
@@ -70,6 +90,23 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "jwt_secret", "ECIMS_JWT_SECRET")
     _apply_env_override(raw, "jwt_expiry_minutes", "ECIMS_JWT_EXPIRY_MINUTES")
     _apply_env_override(raw, "bcrypt_rounds", "ECIMS_BCRYPT_ROUNDS")
+    _apply_env_override(raw, "environment", "ECIMS_ENVIRONMENT")
+    _apply_env_override(raw, "bootstrap_admin_token", "ECIMS_BOOTSTRAP_ADMIN_TOKEN")
+    _apply_env_override(raw, "bootstrap_admin_username", "ECIMS_BOOTSTRAP_ADMIN_USERNAME")
+    _apply_env_override(raw, "bootstrap_admin_password", "ECIMS_BOOTSTRAP_ADMIN_PASSWORD")
+    _apply_env_override(raw, "login_rate_limit_count", "ECIMS_LOGIN_RATE_LIMIT_COUNT")
+    _apply_env_override(raw, "login_rate_limit_window_sec", "ECIMS_LOGIN_RATE_LIMIT_WINDOW_SEC")
+    _apply_env_override(raw, "agent_rate_limit_count", "ECIMS_AGENT_RATE_LIMIT_COUNT")
+    _apply_env_override(raw, "agent_rate_limit_window_sec", "ECIMS_AGENT_RATE_LIMIT_WINDOW_SEC")
+    _apply_env_override(raw, "allow_token_max_duration_minutes", "ECIMS_ALLOW_TOKEN_MAX_DURATION_MINUTES")
+    _apply_env_override(raw, "device_allow_token_public_key_path", "ECIMS_DEVICE_ALLOW_TOKEN_PUBLIC_KEY_PATH")
+    _apply_env_override(raw, "device_allow_token_private_key_path", "ECIMS_DEVICE_ALLOW_TOKEN_PRIVATE_KEY_PATH")
+    _apply_env_override(raw, "data_key_path", "ECIMS_DATA_KEY_PATH")
+    _apply_env_override(raw, "data_key_env", "ECIMS_DATA_KEY_ENV")
+
+    env_data_encryption_enabled = os.getenv("ECIMS_DATA_ENCRYPTION_ENABLED")
+    if env_data_encryption_enabled:
+        raw["data_encryption_enabled"] = env_data_encryption_enabled.strip().lower() in {"1", "true", "yes"}
 
     env_mtls_enabled = os.getenv("ECIMS_MTLS_ENABLED")
     if env_mtls_enabled:

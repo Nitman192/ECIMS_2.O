@@ -443,3 +443,251 @@ Migration utility:
 ```bash
 python scripts/migrate_phase61_revocation.py
 ```
+
+## Server Capability Snapshot (Current)
+
+The FastAPI server currently includes:
+- JWT auth + RBAC (`ADMIN`/`ANALYST`/`VIEWER`) with `/auth/login` and `/auth/me`.
+- mTLS identity validation for agent ingestion (`/agents/register`, `/agents/heartbeat`, `/agents/events`).
+- Offline license verification with startup validation and runtime status endpoint.
+- Signed security policy loading and status reporting (`/security/status`).
+- AI model train/score/list endpoints with license gating.
+- Admin controls for revocation, baseline approval, retention, and audit API read/export.
+
+## Production Hardening Checklist
+
+Before running in production (`ECIMS_ENVIRONMENT=prod` or `test`):
+1. Set a strong `ECIMS_JWT_SECRET` (not default, minimum 24+ chars).
+2. Provide explicit bootstrap admin values when first user DB is empty:
+   - `ECIMS_BOOTSTRAP_ADMIN_TOKEN`
+   - `ECIMS_BOOTSTRAP_ADMIN_USERNAME`
+   - `ECIMS_BOOTSTRAP_ADMIN_PASSWORD`
+3. Ensure signed security policy artifacts are present and valid:
+   - `configs/security.policy.json`
+   - `configs/security.policy.sig`
+   - `configs/security.policy.public.pem`
+4. Run TLS/mTLS mode with `mtls_enabled=true` and `mtls_required=true` unless in controlled development.
+5. Configure endpoint throttling:
+   - login: `ECIMS_LOGIN_RATE_LIMIT_*`
+   - agent ingest: `ECIMS_AGENT_RATE_LIMIT_*`
+
+## Device Control Foundation (Architecture + Contracts)
+
+Phase adds server-side contracts only (no OS enforcement yet) for USB mass-storage control.
+
+### Security policy schema additions
+
+`configs/security.policy.json` now supports:
+- `mass_storage_default_action`: `block_on_insert | allow`
+- `usb_allowlist`: list of `{ vid, pid, serial? }`
+- `temporary_allow_duration_minutes`: integer minutes for temporary allow decisions
+- `escalation_threshold`: integer threshold for repeated block escalations
+
+### Device event types (agent -> server)
+
+Supported event types in event schema:
+- `device.usb.inserted`
+- `device.usb.mass_storage_detected`
+- `device.usb.block_applied`
+- `device.usb.unblock_requested`
+- `device.usb.unblock_approved`
+- `device.usb.unblock_applied`
+
+### USB detection payload contract (details_json)
+
+Expected JSON shape in `details_json` for device events:
+
+```json
+{
+  "device_id": "usb://bus-1-port-2",
+  "vid": "abcd",
+  "pid": "1234",
+  "serial": "SER123",
+  "bus": "1-2",
+  "vendor_name": "Vendor",
+  "product_name": "USB Storage",
+  "first_seen_ts": "2026-01-01T00:00:00Z"
+}
+```
+
+### Policy decision response contract (server contract)
+
+Decision object format for future enforcement wiring:
+
+```json
+{
+  "action": "BLOCK | ALLOW | TEMP_ALLOW",
+  "reason": "string",
+  "temporary_allow_minutes": 60,
+  "policy_source": "signed|default"
+}
+```
+
+### Admin APIs (RBAC + audited)
+
+- `POST /api/v1/admin/device/unblock-request`
+- `POST /api/v1/admin/device/unblock-approve`
+
+All request/approval actions are audit logged.
+
+## Device Control Enforcement Pilot (OS-Aware)
+
+This phase enables endpoint-side pilot enforcement while preserving safe rollback.
+
+### Modes
+- `observe` (safe default): device events are emitted, agent reports `would_block`, no hard block action.
+- `enforce`: agent invokes OS adapter block/unblock hooks.
+
+Mode source:
+- Policy: `device_enforcement_mode` (`observe|enforce`)
+- Agent config fallback: `device_enforcement_mode`
+
+### Command delivery contract
+Server uses DB-backed command queue (`agent_commands`) and agent poll/ack APIs:
+- `GET /api/v1/agents/{agent_id}/commands`
+- `POST /api/v1/agents/{agent_id}/commands/{command_id}/ack`
+
+Admin approvals enqueue commands:
+- `DEVICE_UNBLOCK`
+- `DEVICE_TEMP_ALLOW` (escalation path)
+
+### Agent config knobs
+In `configs/agent.yaml`:
+- `device_enforcement_mode`
+- `command_poll_interval_sec`
+- `failsafe_offline_minutes`
+
+### Safety / Recovery playbook
+1. Keep pilot in `observe` during initial rollout.
+2. For a blocked endpoint, approve unblock using:
+   - `POST /api/v1/admin/device/unblock-approve` (creates `DEVICE_UNBLOCK` command).
+3. If server becomes unreachable beyond failsafe window, agent automatically falls back to observe behavior.
+4. Temp allow expires automatically unless renewed by new command.
+
+## Offline-Safe Device Control (Local Default Deny + Signed Allow Tokens)
+
+### Offline threat model
+Endpoints may be unplugged from server network. In `enforce` mode, mass-storage is blocked locally by default even when server is unreachable.
+
+### Signed allow token workflow
+1. Admin issues token: `POST /api/v1/admin/device/allow-token`
+2. Token contains claims: `token_id`, `agent_id`, `issued_at`, `expires_at`, `scope`, `reason`, `policy_version`
+3. Agent stores token locally and verifies signature offline with configured `token_public_key_path`.
+4. If token is valid and scope matches device selector, temporary allow applies until expiry, then auto-reverts to block.
+
+### Local queue and replay
+If server is unreachable, device events are queued to local disk and replayed in-order on reconnect.
+
+### Operational recovery guidance
+- Keep pilot default in `observe` while validating endpoint compatibility.
+- Use time-bound allow tokens for emergency access during outages.
+- Revoke a token server-side with `POST /api/v1/admin/device/allow-token/revoke` if risk is detected.
+- Verify backlog/health via `/security/status` and audit logs.
+
+## Device Control Enforcement Rollout Safety (OS-Native)
+
+### Rollout strategy
+Signed policy supports staged rollout:
+- `device_enforcement_rollout.strategy`: `all|percent|allowlist_agents|tags`
+- `percent`, `allowlist_agents`, `tags`
+- `enforcement_grace_seconds`
+
+### Kill-switch SOP
+Emergency endpoint:
+- `POST /api/v1/admin/device/kill-switch`
+
+When enabled, server policy decisions force observe/allow behavior and emits `DEVICE_FORCE_OBSERVE` commands for immediate agent-side safety fallback.
+
+### Per-agent controls
+- `POST /api/v1/admin/device/set-agent-mode` queues `DEVICE_SET_MODE` and persists override.
+- `GET /api/v1/admin/device/rollout/status` returns rollout counters and command backlog.
+
+### OS adapter notes
+- Windows adapter uses reversible USBSTOR service-start control (`reg` commands) with local state persistence and reconciliation hooks.
+- Linux adapter remains pluggable stub in this phase.
+
+### Recovery playbook
+1. Trigger kill-switch for immediate containment of accidental lockout.
+2. Confirm rollout status and command backlog in `/api/v1/admin/device/rollout/status`.
+3. Use per-agent mode overrides for canary rollback.
+4. Restore normal policy and re-apply hashes via queued `DEVICE_APPLY_POLICY_HASH` commands.
+
+## Test Suite Tiers (Release Candidate)
+
+Use the Make targets below from `ecims2/`:
+
+- `make test-current` — **blocking** release gate for current behavior.
+- `make test-security` — authoritative security posture subset (mTLS, auth/RBAC, startup encryption, hardening, device enforcement, observability).
+- `make test-legacy` — non-blocking historical tests retained for reference.
+- `make test` — alias of `make test-current`.
+
+Legacy tests cover historical assumptions (for example, unauthenticated agent registration flows from earlier phases) that are intentionally superseded by current security controls.
+
+## Release Candidate Checklist
+
+### Production environment variables (minimum)
+- `ECIMS_ENVIRONMENT=prod`
+- `ECIMS_JWT_SECRET` (strong, non-default)
+- `ECIMS_BOOTSTRAP_ADMIN_TOKEN`
+- `ECIMS_BOOTSTRAP_ADMIN_USERNAME`
+- `ECIMS_BOOTSTRAP_ADMIN_PASSWORD`
+- `ECIMS_LICENSE_PATH`, `ECIMS_LICENSE_PUBLIC_KEY_PATH`
+- `ECIMS_SECURITY_POLICY_PATH`, `ECIMS_SECURITY_POLICY_SIG_PATH`, `ECIMS_SECURITY_POLICY_PUBLIC_KEY_PATH`
+- `ECIMS_DEVICE_ALLOW_TOKEN_PRIVATE_KEY_PATH`, `ECIMS_DEVICE_ALLOW_TOKEN_PUBLIC_KEY_PATH`
+- `ECIMS_DATA_KEY_PATH` or `ECIMS_DATA_KEY_B64`
+
+### Policy artifacts
+- Confirm policy JSON, signature, and public key are present before startup.
+- Confirm startup guardrails reject missing/invalid policy artifacts in prod.
+
+### Allow-token key operations
+- Keep private signing key offline or restricted to server runtime identity.
+- Rotate allow-token key pair on a defined cadence (for example, quarterly) and update deployed public key for agents.
+- Revoke outstanding allow-tokens when key compromise is suspected.
+
+### Kill-switch SOP
+- Use `POST /api/v1/admin/device/kill-switch` to enable emergency allow mode.
+- Record justification + approver in incident ticket and audit logs.
+- Disable kill-switch after incident and verify rollout status/backlog clears.
+
+### Rollback steps
+1. Enable kill-switch if endpoint blocking must be neutralized immediately.
+2. Roll back server package/config to last known good build.
+3. Re-run `make test-current` and `make test-security` on rollback candidate.
+4. Validate `/health`, `/api/v1/security/status`, and `/api/v1/admin/device/rollout/status`.
+5. Disable kill-switch and monitor drift + command backlog.
+
+## Production Packaging & Deployment
+
+### Build packages
+```bash
+cd ecims2
+./scripts/build_server_package.sh
+./scripts/build_agent_windows_package.sh
+```
+
+Server package output: `dist/ecims_server/`.
+Agent package output: `dist/ecims_agent_windows/`.
+
+By default, server package excludes allow-token private keys. To include explicitly:
+```bash
+ECIMS_INCLUDE_PRIVATE_KEYS=true ./scripts/build_server_package.sh
+```
+
+### Templates
+- `configs/server.yaml.template`
+- `.env.production.template`
+
+### Production startup fail-safe guards
+In `prod`, startup refuses to run when:
+- JWT secret is weak/default.
+- Signed policy artifacts are missing/invalid.
+- Data encryption is enabled but key material is missing.
+- Allow-token private signing key is missing.
+
+### Optional container deployment
+- `Dockerfile`
+- `docker-compose.yml` (includes healthcheck)
+
+### Release operations
+See `RELEASE.md` for final checklist, backup strategy, kill-switch SOP, offline recovery, and key rotation process.

@@ -148,6 +148,17 @@ class AgentService:
             return result
 
     @staticmethod
+
+    @staticmethod
+    def set_device_mode_override(agent_id: int, mode: str | None) -> bool:
+        with get_db() as conn:
+            row = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+            if not row:
+                return False
+            conn.execute("UPDATE agents SET device_mode_override = ? WHERE id = ?", (mode, agent_id))
+            return True
+
+    @staticmethod
     def run_offline_check(offline_threshold_sec: int) -> int:
         now = utcnow()
         cutoff = now - timedelta(seconds=offline_threshold_sec)
