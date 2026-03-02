@@ -14,3 +14,25 @@ license_authority_gui/logs/
 # Windows random files
 cd
 netstat
+
+# Build artifacts
+dist/
+exports/
+
+# Local runtime state
+.device_adapter_state.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+
+# Database
+*.db
+
+# Env files
+.env
