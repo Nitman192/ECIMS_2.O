@@ -49,7 +49,8 @@ def _derive_hmac_key() -> bytes:
 
 def _state_file_path() -> Path:
     root = Path(__file__).resolve().parents[3]
-    state_dir = root / "server" / ".ecims_state"
+    override = os.getenv("ECIMS_STATE_DIR", "").strip()
+    state_dir = Path(override) if override else (root / "server" / ".ecims_state")
     state_dir.mkdir(parents=True, exist_ok=True)
     return state_dir / "last_run.json"
 
