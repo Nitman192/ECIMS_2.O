@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { font-family: Inter, Segoe UI, Roboto, sans-serif; }
+
+.card {
+  @apply rounded-2xl bg-white p-5 shadow-soft dark:bg-surface-800;
+}
+
+.input {
+  @apply w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-500 dark:border-slate-700 dark:bg-surface-700;
+}
+
+.btn {
+  @apply rounded-xl px-3 py-2 text-sm font-medium transition;
+}

@@ -1,4 +1,5 @@
 app_name: "ECIMS 2.0 Server"
+environment: "dev"
 api_prefix: "/api/v1"
 db_path: "ecims2.db"
 offline_threshold_sec: 120
@@ -30,6 +31,7 @@ license_public_key_path: "server/app/license/public_key.pem"
 # Security policy (signed)
 security_policy_path: "configs/security.policy.json"
 security_policy_sig_path: "configs/security.policy.sig"
+security_policy_public_key_path: "configs/security.policy.public.pem"
 
 # mTLS/TLS settings
 mtls_enabled: true
@@ -46,3 +48,20 @@ admin_api_token: ""
 jwt_secret: "change-me-in-production"
 jwt_expiry_minutes: 30
 bcrypt_rounds: 12
+
+# Non-dev one-time bootstrap admin flow
+bootstrap_admin_token: ""
+bootstrap_admin_username: ""
+bootstrap_admin_password: ""
+
+# Rate limiting
+login_rate_limit_count: 100
+login_rate_limit_window_sec: 60
+agent_rate_limit_count: 1000
+agent_rate_limit_window_sec: 60
+
+# Offline-safe device allow token signing
+# Keep private key on server only; distribute public key to agents
+device_allow_token_private_key_path: "configs/device_allow_token_private.pem"
+device_allow_token_public_key_path: "configs/device_allow_token_public.pem"
+allow_token_max_duration_minutes: 240

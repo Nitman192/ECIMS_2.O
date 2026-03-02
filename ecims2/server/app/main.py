@@ -2,26 +2,55 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+import uuid
+from collections import defaultdict, deque
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from app.api.routes import router as api_router
 from app.core.config import get_settings
 from app.core.logging_config import configure_logging
+from app.core.version import SERVER_VERSION, SCHEMA_VERSION
 from app.db.database import get_db, init_db
 from app.licensing_core.loader import load_license
 from app.licensing_core.policy import load_security_policy
 from app.licensing_core.policy_state import set_policy_state
 from app.licensing_core.state import set_license_state
 from app.services.audit_service import AuditService
+from app.security.storage_crypto import get_crypto_status
 from app.services.user_service import UserService
+from app.utils.request_context import REQUEST_ID
 
 configure_logging()
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 app = FastAPI(title=settings.app_name)
+
+
+class StartupValidationError(RuntimeError):
+    pass
+
+
+class SlidingWindowRateLimiter:
+    def __init__(self) -> None:
+        self._buckets: dict[str, deque[float]] = defaultdict(deque)
+
+    def allow(self, key: str, now: float, limit: int, window_sec: int) -> bool:
+        bucket = self._buckets[key]
+        cutoff = now - window_sec
+        while bucket and bucket[0] <= cutoff:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+        return True
+
+
+_rate_limiter = SlidingWindowRateLimiter()
 
 
 def _resolve_path(path_str: str) -> str:
@@ -31,6 +60,76 @@ def _resolve_path(path_str: str) -> str:
     root = Path(__file__).resolve().parents[2]
     return str(root / candidate)
 
+
+def _is_weak_jwt_secret(secret: str) -> bool:
+    if not secret:
+        return True
+    lowered = secret.strip().lower()
+    weak_values = {"change-me-in-production", "changeme", "default", "secret", "password"}
+    return lowered in weak_values or len(secret.strip()) < 24
+
+
+def _validate_startup_guardrails(policy_reason: str) -> None:
+    env = settings.environment
+    if env not in {"dev", "test", "prod"}:
+        raise StartupValidationError("STARTUP_ENVIRONMENT_INVALID")
+
+    if env != "dev" and _is_weak_jwt_secret(settings.jwt_secret):
+        raise StartupValidationError("STARTUP_JWT_SECRET_WEAK")
+
+    if env != "dev" and policy_reason in {"POLICY_MISSING", "POLICY_INVALID_SIGNATURE", "POLICY_INVALID_JSON"}:
+        raise StartupValidationError(f"STARTUP_POLICY_INVALID:{policy_reason}")
+
+    if env == "prod":
+        allow_token_private_key = Path(_resolve_path(settings.device_allow_token_private_key_path))
+        if not allow_token_private_key.exists():
+            raise StartupValidationError("STARTUP_ALLOW_TOKEN_PRIVATE_KEY_MISSING")
+
+
+def _handle_bootstrap_admin() -> None:
+    if UserService.count_users() > 0:
+        return
+
+    if settings.environment == "dev":
+        if UserService.ensure_bootstrap_admin_dev():
+            logger.warning(
+                "Default admin bootstrap account created in dev mode (username=admin). Rotate password immediately."
+            )
+        return
+
+    token = settings.bootstrap_admin_token.strip()
+    username = settings.bootstrap_admin_username.strip()
+    password = settings.bootstrap_admin_password
+    if not (token and username and password):
+        raise StartupValidationError("STARTUP_ADMIN_BOOTSTRAP_REQUIRED")
+
+    try:
+        created = UserService.bootstrap_admin_with_token(
+            expected_token=token,
+            provided_token=token,
+            username=username,
+            password=password,
+        )
+    except ValueError as exc:
+        raise StartupValidationError(f"STARTUP_ADMIN_BOOTSTRAP_INVALID:{exc}") from exc
+
+    if created:
+        logger.info("Bootstrap admin created from explicit bootstrap token flow")
+
+
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    rid = request.headers.get("x-request-id", "").strip() or str(uuid.uuid4())
+    request.state.request_id = rid
+    token = REQUEST_ID.set(rid)
+    try:
+        response = await call_next(request)
+        response.headers["x-request-id"] = rid
+        return response
+    finally:
+        REQUEST_ID.reset(token)
 
 @app.middleware("http")
 async def request_size_limit(request: Request, call_next):
@@ -64,23 +163,55 @@ async def request_size_limit(request: Request, call_next):
 
 
 @app.middleware("http")
-async def rate_limit_stub(request: Request, call_next):
+async def rate_limit(request: Request, call_next):
+    endpoint_key = None
+    key = None
+    path = request.url.path
+
+    if path.endswith("/auth/login") and request.method.upper() == "POST":
+        endpoint_key = "login"
+        key = f"ip:{request.client.host if request.client else 'unknown'}"
+        limit = settings.login_rate_limit_count
+        window = settings.login_rate_limit_window_sec
+    elif path.endswith("/agents/heartbeat") or path.endswith("/agents/events"):
+        endpoint_key = "agent"
+        token = request.headers.get("x-ecims-token", "").strip()
+        if token:
+            key = f"token:{token[:16]}"
+        else:
+            key = f"ip:{request.client.host if request.client else 'unknown'}"
+        limit = settings.agent_rate_limit_count
+        window = settings.agent_rate_limit_window_sec
+    else:
+        return await call_next(request)
+
+    if not _rate_limiter.allow(f"{endpoint_key}:{key}", time.time(), limit, window):
+        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
     return await call_next(request)
 
 
 @app.on_event("startup")
 def on_startup() -> None:
-    init_db()
+    migration = init_db()
+    _rate_limiter._buckets.clear()
 
     policy_state = load_security_policy(
         policy_path=_resolve_path(settings.security_policy_path),
         policy_sig_path=_resolve_path(settings.security_policy_sig_path),
+        public_key_override=_resolve_path(settings.security_policy_public_key_path),
     )
     set_policy_state(policy_state)
 
+    _validate_startup_guardrails(policy_state.reason)
+
+    crypto_status = get_crypto_status()
+    if settings.data_encryption_enabled and not crypto_status.encryption_enabled:
+        raise StartupValidationError(f"STARTUP_DATA_ENCRYPTION_INVALID:{crypto_status.reason}")
+
     configured_public_key_path = _resolve_path(settings.license_public_key_path)
     override_pub = os.getenv("ECIMS_LICENSE_PUBLIC_KEY_PATH")
-    if override_pub and policy_state.policy.allow_key_override:
+    allow_override = policy_state.policy.allow_key_override or settings.environment in {"dev", "test"}
+    if override_pub and allow_override:
         public_key_path = _resolve_path(override_pub)
     else:
         public_key_path = configured_public_key_path
@@ -90,10 +221,18 @@ def on_startup() -> None:
     )
     set_license_state(license_state)
 
-    if UserService.ensure_bootstrap_admin():
-        logger.warning("Default admin bootstrap account created (username=admin). Rotate default password immediately.")
+    _handle_bootstrap_admin()
 
     with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="SYSTEM",
+            action="SCHEMA_MIGRATION_APPLIED",
+            target_type="DATABASE",
+            target_id="schema_version",
+            message="Schema migration check completed",
+            metadata=migration,
+        )
         AuditService.log(
             conn,
             actor_type="SYSTEM",
@@ -128,11 +267,23 @@ def on_startup() -> None:
     logger.info("Database initialized and server started")
     logger.info("Policy mode=%s reason=%s", policy_state.policy.mode, policy_state.reason)
     logger.info("License status valid=%s reason=%s", license_state.valid, license_state.reason)
+    logger.info("Storage encryption enabled=%s key_id=%s reason=%s", crypto_status.encryption_enabled, crypto_status.active_key_id, crypto_status.reason)
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> dict[str, object]:
+    db_ok = True
+    try:
+        with get_db() as conn:
+            conn.execute("SELECT 1").fetchone()
+    except Exception:
+        db_ok = False
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "db_ok": db_ok,
+        "server_version": SERVER_VERSION,
+        "schema_version": SCHEMA_VERSION,
+    }
 
 
 app.include_router(api_router, prefix=settings.api_prefix)

@@ -6,8 +6,10 @@ from typing import Any, Iterable
 from pydantic import ValidationError
 
 from app.db.database import get_db
-from app.schemas.event import FileEventV1, LegacyFileEvent, SCHEMA_VERSION
+from app.schemas.event import EventType, FileEventV1, LegacyFileEvent, SCHEMA_VERSION
 from app.services.audit_service import AuditService
+from app.services.agent_command_service import AgentCommandService
+from app.services.device_policy_service import DevicePolicyService
 from app.utils.time import utcnow
 
 SEVERITY_MAP = {
@@ -103,6 +105,43 @@ class EventService:
                         message="Accepted legacy Phase 1 event and normalized to schema v1",
                         metadata={"agent_id": agent_id, "file_path": event.file_path},
                     )
+
+                if event.event_type == EventType.DEVICE_USB_MASS_STORAGE_DETECTED:
+                    usb = event.details_json or {}
+                    decision = DevicePolicyService.evaluate_usb_mass_storage(
+                        vid=str(usb.get("vid", "")),
+                        pid=str(usb.get("pid", "")),
+                        serial=str(usb.get("serial")) if usb.get("serial") is not None else None,
+                        prior_blocks=int(usb.get("prior_blocks", 0) or 0),
+                        agent_id=agent_id,
+                    )
+                    AuditService.log(
+                        conn,
+                        actor_type="SYSTEM",
+                        action="DEVICE_POLICY_EVALUATED",
+                        target_type="DEVICE",
+                        target_id=usb.get("device_id", "unknown"),
+                        message="USB mass-storage policy evaluated",
+                        metadata={
+                            "agent_id": agent_id,
+                            "vid": usb.get("vid"),
+                            "pid": usb.get("pid"),
+                            "action": decision.action,
+                            "reason": decision.reason,
+                            "temporary_allow_minutes": decision.temporary_allow_minutes,
+                        },
+                    )
+
+                    if decision.action == "TEMP_ALLOW":
+                        AgentCommandService.enqueue(
+                            agent_id=agent_id,
+                            command_type="DEVICE_TEMP_ALLOW",
+                            payload={
+                                "device_id": usb.get("device_id"),
+                                "duration_minutes": decision.temporary_allow_minutes,
+                                "reason": decision.reason,
+                            },
+                        )
 
                 baseline = conn.execute(
                     "SELECT id, sha256 FROM baseline WHERE agent_id = ? AND file_path = ?",

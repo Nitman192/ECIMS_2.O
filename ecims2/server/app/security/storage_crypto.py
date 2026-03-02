@@ -103,8 +103,8 @@ def _derive_purpose_key(master_key: bytes, purpose: str) -> bytes:
 
 def _active_encryption_required() -> bool:
     settings = get_settings()
-    policy = get_policy_state().policy
-    return settings.data_encryption_enabled and policy.data_encryption_required
+    _ = get_policy_state()  # ensure policy state is initialized for consistent startup ordering
+    return settings.data_encryption_enabled
 
 
 def get_crypto_status() -> CryptoStatus:

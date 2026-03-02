@@ -1,0 +1,30 @@
+{
+  "mode": "STRICT",
+  "allow_key_override": false,
+  "grace_days": 0,
+  "status_redaction_level": 1,
+  "allow_unsigned_dev": false,
+  "mtls_required": true,
+  "pinning_required": true,
+  "allow_tls12": false,
+  "allow_plain_https": false,
+  "mass_storage_default_action": "block_on_insert",
+  "usb_allowlist": [],
+  "temporary_allow_duration_minutes": 60,
+  "escalation_threshold": 3,
+  "device_enforcement_mode": "observe",
+  "mass_storage_offline_behavior": "block",
+  "allow_token_required_for_unblock": true,
+  "allow_token_max_duration_minutes": 240,
+  "local_event_queue_retention_hours": 72,
+  "token_public_key_path": "configs/device_allow_token_public.pem",
+  "device_enforcement_rollout": {
+    "strategy": "all",
+    "percent": 100,
+    "allowlist_agents": [],
+    "tags": []
+  },
+  "device_kill_switch": false,
+  "per_agent_override_allowed": true,
+  "enforcement_grace_seconds": 0
+}

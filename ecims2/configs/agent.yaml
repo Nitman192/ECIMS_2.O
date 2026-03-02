@@ -14,3 +14,13 @@ agent_pfx_password: null
 # Server trust + pinning
 server_ca_bundle_path: "configs/tls/server_ca.crt"
 server_cert_pin_sha256: ""
+
+# Device control enforcement pilot
+# observe: report-only/would-block
+# enforce: attempt block via OS adapter
+device_enforcement_mode: "observe"
+command_poll_interval_sec: 15
+failsafe_offline_minutes: 5
+token_public_key_path: "configs/device_allow_token_public.pem"
+local_event_queue_retention_hours: 72
+enforcement_grace_seconds: 0
