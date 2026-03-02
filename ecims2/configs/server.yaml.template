@@ -1,0 +1,34 @@
+# ECIMS server configuration template
+# DEV defaults are intentionally permissive for local iteration.
+# PRODUCTION must override via environment variables in .env.production.
+
+environment: dev
+app_name: ECIMS 2.0 Server
+api_prefix: /api/v1
+
+db_path: ecims2.db
+ai_artifact_dir: ai_artifacts
+
+license_path: configs/license.ecims
+license_public_key_path: server/app/license/public_key.pem
+
+security_policy_path: configs/security.policy.json
+security_policy_sig_path: configs/security.policy.sig
+security_policy_public_key_path: configs/security.policy.public.pem
+
+mtls_enabled: true
+mtls_required: true
+
+jwt_secret: change-me-in-production
+jwt_expiry_minutes: 30
+
+# Device allow-token signing keys
+# Public key can be packaged/distributed.
+device_allow_token_public_key_path: configs/device_allow_token_public.pem
+# Private key must be provisioned securely in prod; do not commit real secrets.
+device_allow_token_private_key_path: configs/device_allow_token_private.pem
+
+# Data encryption (disabled by default for local/dev)
+data_encryption_enabled: false
+data_key_path: configs/data_keys.json
+data_key_env: ECIMS_DATA_KEY_B64

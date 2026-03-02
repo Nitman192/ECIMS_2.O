@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from app.db.database import get_db
 from app.models.user import UserRole
 from app.security.auth import hash_password, verify_password
@@ -97,10 +99,41 @@ class UserService:
             return True
 
     @staticmethod
-    def ensure_bootstrap_admin() -> bool:
+    def ensure_bootstrap_admin_dev() -> bool:
         if UserService.count_users() > 0:
             return False
         UserService.create_user("admin", "admin123", UserRole.ADMIN)
+        return True
+
+    @staticmethod
+    def bootstrap_admin_with_token(*, expected_token: str, provided_token: str, username: str, password: str) -> bool:
+        if UserService.count_users() > 0:
+            return False
+        if not expected_token or provided_token != expected_token:
+            raise ValueError("BOOTSTRAP_TOKEN_INVALID")
+        if not username.strip() or len(password) < 12:
+            raise ValueError("BOOTSTRAP_CREDENTIALS_INVALID")
+
+        now_iso = utcnow().isoformat()
+        token_sha256 = hashlib.sha256(provided_token.encode("utf-8")).hexdigest()
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO users(username, password_hash, role, is_active, created_at)
+                VALUES(?, ?, ?, 1, ?)
+                """,
+                (username.strip(), hash_password(password), UserRole.ADMIN.value, now_iso),
+            )
+            user_id = int(cursor.lastrowid)
+            AuditService.log(
+                conn,
+                actor_type="SYSTEM",
+                action="BOOTSTRAP_ADMIN_CREATED",
+                target_type="USER",
+                target_id=user_id,
+                message="Bootstrap admin account created",
+                metadata={"username": username.strip(), "token_sha256_prefix": token_sha256[:12]},
+            )
         return True
 
     @staticmethod

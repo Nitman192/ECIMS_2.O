@@ -6,8 +6,11 @@ import time
 
 from ecims_agent.api_client import ApiClient, TLSClientConfig
 from ecims_agent.config import load_config
+from ecims_agent.device_adapter import select_adapter
+from ecims_agent.device_control import DeviceControlManager
 from ecims_agent.scanner import scan_paths
 from ecims_agent.storage import load_state, save_state
+from ecims_agent.version import AGENT_VERSION
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
 logger = logging.getLogger("ecims-agent")
@@ -29,6 +32,15 @@ def run(config_path: str) -> None:
             allow_plain_https=False,
         ),
     )
+    adapter = select_adapter()
+    device_mgr = DeviceControlManager(
+        enforcement_mode=config.device_enforcement_mode,
+        failsafe_offline_minutes=config.failsafe_offline_minutes,
+        token_public_key_path=config.token_public_key_path,
+        local_event_queue_retention_hours=config.local_event_queue_retention_hours,
+        enforcement_grace_seconds=config.enforcement_grace_seconds,
+    )
+    adapter.reconcile_state(config.device_enforcement_mode)
 
     if "agent_id" not in state or "token" not in state:
         logger.info("Registering agent with server")
@@ -38,12 +50,43 @@ def run(config_path: str) -> None:
         state["snapshot"] = {}
         save_state(state)
 
+    last_cmd_poll = 0.0
+    known_devices = {}
+
     while True:
         try:
             events, snapshot = scan_paths(config.monitored_paths, state.get("snapshot", {}))
             if events:
                 client.post_events(state["agent_id"], state["token"], events)
+                device_mgr.mark_server_contact()
+
+            for device in adapter.detect_mass_storage():
+                known_devices[device.device_id] = device
+                device_events = device_mgr.build_detection_events(device)
+                client.post_events(state["agent_id"], state["token"], device_events)
+                device_mgr.maybe_block_device(client, state["agent_id"], state["token"], adapter, device)
+                device_mgr.mark_server_contact()
+
+            now = time.time()
+            if now - last_cmd_poll >= config.command_poll_interval_sec:
+                device_mgr.process_commands(client, state["agent_id"], state["token"], adapter, known_devices)
+                client.post_device_status(
+                    state["agent_id"],
+                    state["token"],
+                    {
+                        "policy_hash_applied": device_mgr.policy_hash,
+                        "enforcement_mode": device_mgr.enforcement_mode,
+                        "adapter_status": "ok",
+                        "last_reconcile_time": device_mgr.last_server_contact_utc.isoformat(),
+                        "agent_version": AGENT_VERSION,
+                    },
+                )
+                last_cmd_poll = now
+                device_mgr.mark_server_contact()
+
             client.heartbeat(state["agent_id"], state["token"])
+            device_mgr.mark_server_contact()
+            device_mgr.flush_event_queue(client, state["agent_id"], state["token"])
             state["snapshot"] = snapshot
             save_state(state)
         except Exception as exc:  # noqa: BLE001

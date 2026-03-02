@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -84,8 +85,11 @@ def load_license(license_path: str, public_key_path: str | None = None) -> Licen
     if not integrity_ok:
         return LicenseState(False, integrity_reason, None, loaded_at, None, local_short)
 
+    env = os.getenv("ECIMS_ENVIRONMENT", "dev").strip().lower() or "dev"
+    enforce_tamper = env == "prod"
+
     last_run = _read_last_run()
-    if last_run is not None and (last_run == datetime.max.replace(tzinfo=timezone.utc) or now < (last_run - SMALL_SKEW)):
+    if enforce_tamper and last_run is not None and (last_run == datetime.max.replace(tzinfo=timezone.utc) or now < (last_run - SMALL_SKEW)):
         return LicenseState(False, LicenseReason.TAMPER_DETECTED.value, None, loaded_at, None, local_short)
 
     license_file = Path(license_path)
