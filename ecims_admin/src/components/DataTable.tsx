@@ -1,15 +1,15 @@
-// src/components/DataTable.tsx
-import type { ReactNode } from 'react';
+﻿import type { ReactNode } from 'react';
 
-type Column<T> = {
+export type DataTableColumn<T> = {
   key: keyof T | string;
   header: string;
-  className?: string;
+  headerClassName?: string;
+  cellClassName?: string;
   render?: (row: T) => ReactNode;
 };
 
 type DataTableProps<T> = {
-  columns: Array<Column<T>>;
+  columns: Array<DataTableColumn<T>>;
   rows: T[];
   rowKey: (row: T, index: number) => string;
   emptyText?: string;
@@ -30,7 +30,7 @@ export const DataTable = <T,>({
               {columns.map((column) => (
                 <th
                   key={String(column.key)}
-                  className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 ${column.className ?? ''}`}
+                  className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 ${column.headerClassName ?? ''}`}
                 >
                   {column.header}
                 </th>
@@ -53,12 +53,12 @@ export const DataTable = <T,>({
             {rows.map((row, index) => (
               <tr
                 key={rowKey(row, index)}
-                className="transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40"
               >
                 {columns.map((column) => (
                   <td
                     key={String(column.key)}
-                    className="whitespace-nowrap px-4 py-3 text-sm text-slate-700 dark:text-slate-200"
+                    className={`whitespace-nowrap px-4 py-3 text-sm text-slate-700 dark:text-slate-200 ${column.cellClassName ?? ''}`}
                   >
                     {column.render
                       ? column.render(row)
@@ -73,3 +73,4 @@ export const DataTable = <T,>({
     </div>
   );
 };
+

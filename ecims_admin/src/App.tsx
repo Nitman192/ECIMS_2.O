@@ -1,15 +1,28 @@
+﻿import { useEffect } from 'react';
 import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
 import { bindAuthHandlers } from './api/client';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './layout/AppLayout';
-import { LoginPage } from './pages/LoginPage';
-import { DashboardPage } from './pages/DashboardPage';
+import { AdminAuditExplorerPage } from './pages/admin/AdminAuditExplorerPage';
+import { AdminFeaturesPage } from './pages/admin/AdminFeaturesPage';
+import { AdminRolesPage } from './pages/admin/AdminRolesPage';
+import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 import { AgentsPage } from './pages/AgentsPage';
 import { AlertsPage } from './pages/AlertsPage';
-import { SecurityCenterPage } from './pages/SecurityCenterPage';
-import { LicensePanelPage } from './pages/LicensePanelPage';
 import { AuditLogsPage } from './pages/AuditLogsPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { LicensePanelPage } from './pages/LicensePanelPage';
+import { LoginPage } from './pages/LoginPage';
+import { BreakGlassPage } from './pages/ops/BreakGlassPage';
+import { ChangeControlPage } from './pages/ops/ChangeControlPage';
+import { EnrollmentPage } from './pages/ops/EnrollmentPage';
+import { EvidenceVaultPage } from './pages/ops/EvidenceVaultPage';
+import { HealthPage } from './pages/ops/HealthPage';
+import { PlaybooksPage } from './pages/ops/PlaybooksPage';
+import { QuarantinePage } from './pages/ops/QuarantinePage';
+import { RemoteActionsPage } from './pages/ops/RemoteActionsPage';
+import { SchedulesPage } from './pages/ops/SchedulesPage';
+import { SecurityCenterPage } from './pages/SecurityCenterPage';
 import { useAuth } from './store/AuthContext';
 
 export const App = () => {
@@ -25,8 +38,6 @@ export const App = () => {
       },
     );
   }, [token, clearSession, navigate]);
-
-  <div className="p-6 bg-red-600 text-white text-2xl font-bold">TAILWIND OK</div>;
 
   return (
     <Routes>
@@ -45,8 +56,30 @@ export const App = () => {
         <Route path="security" element={<SecurityCenterPage />} />
         <Route path="license" element={<LicensePanelPage />} />
         <Route path="audit" element={<AuditLogsPage />} />
+
+        <Route path="admin">
+          <Route index element={<Navigate to="users" replace />} />
+          <Route path="users" element={<AdminUsersPage />} />
+          <Route path="roles" element={<AdminRolesPage />} />
+          <Route path="features" element={<AdminFeaturesPage />} />
+          <Route path="audit" element={<AdminAuditExplorerPage />} />
+        </Route>
+
+        <Route path="ops">
+          <Route index element={<Navigate to="remote-actions" replace />} />
+          <Route path="remote-actions" element={<RemoteActionsPage />} />
+          <Route path="schedules" element={<SchedulesPage />} />
+          <Route path="enrollment" element={<EnrollmentPage />} />
+          <Route path="health" element={<HealthPage />} />
+          <Route path="quarantine" element={<QuarantinePage />} />
+          <Route path="evidence-vault" element={<EvidenceVaultPage />} />
+          <Route path="playbooks" element={<PlaybooksPage />} />
+          <Route path="change-control" element={<ChangeControlPage />} />
+          <Route path="break-glass" element={<BreakGlassPage />} />
+        </Route>
       </Route>
       <Route path="*" element={<Navigate to={token ? '/' : '/login'} replace />} />
     </Routes>
   );
 };
+

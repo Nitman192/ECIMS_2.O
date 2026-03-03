@@ -1,13 +1,9 @@
-// src/layout/AppLayout.tsx
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { Container } from '../components/ui/Container';
 import { useAuth } from '../store/AuthContext';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
-
-const SIDEBAR_EXPANDED = 280;
-const SIDEBAR_COLLAPSED = 96;
 
 export const AppLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
@@ -30,10 +26,7 @@ export const AppLayout = () => {
         onToggleCollapse={() => setCollapsed((prev) => !prev)}
       />
 
-      <div
-        className="transition-[padding-left] duration-300 ease-out lg:pl-[var(--sbw)]"
-        style={{ ['--sbw' as any]: `${collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED}px` }}
-      >
+      <div className={`app-shell ${collapsed ? 'app-shell-collapsed' : 'app-shell-expanded'}`}>
         <Topbar
           onOpenSidebar={() => setMobileOpen(true)}
           userName={user?.username ?? 'Operator'}
@@ -52,3 +45,4 @@ export const AppLayout = () => {
     </div>
   );
 };
+
