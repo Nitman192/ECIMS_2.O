@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, useState, useEffect } from 'react';
+import { createContext, useContext, useMemo, useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import type { User } from '../types';
 import { bindAuthHandlers } from '../api/client';
@@ -16,30 +16,44 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
 
+  const clearSession = useCallback(() => {
+    setToken(null);
+    setUser(null);
+  }, []);
+
+  //  Bind interceptor ONLY when token exists
   useEffect(() => {
+    if (!token) return;
+
     bindAuthHandlers(
       () => token,
       () => {
-        setToken(null);
-        setUser(null);
+        clearSession();
       }
     );
-  }, [token]);
+  }, [token, clearSession]);
+
+  const setSession = useCallback((nextToken: string, nextUser: User) => {
+    //  Immediately bind using fresh token (avoid race condition)
+    bindAuthHandlers(
+      () => nextToken,
+      () => {
+        clearSession();
+      }
+    );
+
+    setToken(nextToken);
+    setUser(nextUser);
+  }, [clearSession]);
 
   const value = useMemo(
     () => ({
       token,
       user,
-      setSession: (nextToken: string, nextUser: User) => {
-        setToken(nextToken);
-        setUser(nextUser);
-      },
-      clearSession: () => {
-        setToken(null);
-        setUser(null);
-      },
+      setSession,
+      clearSession,
     }),
-    [token, user]
+    [token, user, setSession, clearSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

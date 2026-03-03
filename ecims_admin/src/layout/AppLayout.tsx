@@ -5,12 +5,22 @@ import { Topbar } from './Topbar';
 
 export const AppLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   return (
-    <div className="flex min-h-screen bg-slate-100 text-slate-900 dark:bg-surface-900 dark:text-slate-100">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar />
-        <main className="flex-1 p-6"><Outlet /></main>
+    <div className="min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <Sidebar
+        collapsed={collapsed}
+        onToggleCollapse={() => setCollapsed((prev) => !prev)}
+        mobileOpen={mobileOpen}
+        onCloseMobile={() => setMobileOpen(false)}
+      />
+
+      <div className={`flex min-h-screen flex-col transition-[padding] duration-300 ${collapsed ? 'lg:pl-20' : 'lg:pl-72'}`}>
+        <Topbar onOpenSidebar={() => setMobileOpen(true)} userName="Admin User" />
+        <main className="flex-1 p-4 sm:p-6">
+          <Outlet />
+        </main>
       </div>
     </div>
   );
