@@ -2,7 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { font-family: Inter, Segoe UI, Roboto, sans-serif; }
+:root {
+  font-family: "Segoe UI", "Inter", sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-slate-200 dark:border-slate-800;
+  }
+
+  html,
+  body,
+  #root {
+    @apply min-h-screen;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  }
+}
 
 .card {
   @apply rounded-2xl bg-white p-5 shadow-soft dark:bg-surface-800;
