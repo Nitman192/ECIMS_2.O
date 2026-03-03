@@ -88,7 +88,9 @@ export const AuditLogsPage = () => {
       setRows(normalizeAuditRows(response.data));
       setStatus('ready');
     } catch (error: any) {
-      setErrorMessage(error?.response?.data?.detail || error?.message || 'Unable to load audit logs');
+      setErrorMessage(
+        error?.response?.data?.detail || error?.message || 'Unable to load audit logs',
+      );
       setStatus('error');
     }
   };
@@ -101,7 +103,8 @@ export const AuditLogsPage = () => {
     const q = query.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((row) => {
-      const haystack = `${row.id} ${row.action || ''} ${row.message || ''} ${row.actor || ''} ${row.resource || ''} ${row.ts || ''}`.toLowerCase();
+      const haystack =
+        `${row.id} ${row.action || ''} ${row.message || ''} ${row.actor || ''} ${row.resource || ''} ${row.ts || ''}`.toLowerCase();
       return haystack.includes(q);
     });
   }, [rows, query]);
@@ -116,7 +119,9 @@ export const AuditLogsPage = () => {
         redaction_profile: 'standard',
       });
       const path = (response.data as Record<string, unknown>)?.path;
-      setExportNotice(path ? `Export generated: ${String(path)}` : 'Export requested successfully.');
+      setExportNotice(
+        path ? `Export generated: ${String(path)}` : 'Export requested successfully.',
+      );
     } catch (error: any) {
       setExportNotice(error?.response?.data?.detail || error?.message || 'Audit export failed');
     }
@@ -186,11 +191,22 @@ export const AuditLogsPage = () => {
         )}
       </Card>
 
-      <Card title="Audit Event Stream" subtitle="Backend audit feed with resilient fallback parsing.">
-        {status === 'loading' && <LoadingState title="Loading audit logs" description="Fetching latest audit events." />}
-        {status === 'error' && <ErrorState description={errorMessage} onRetry={() => void loadAudit()} />}
+      <Card
+        title="Audit Event Stream"
+        subtitle="Backend audit feed with resilient fallback parsing."
+      >
+        {status === 'loading' && (
+          <LoadingState title="Loading audit logs" description="Fetching latest audit events." />
+        )}
+        {status === 'error' && (
+          <ErrorState description={errorMessage} onRetry={() => void loadAudit()} />
+        )}
         {status === 'ready' && filteredRows.length > 0 && (
-          <DataTable columns={columns} rows={filteredRows} rowKey={(row, index) => `${row.id}-${index}`} />
+          <DataTable
+            columns={columns}
+            rows={filteredRows}
+            rowKey={(row, index) => `${row.id}-${index}`}
+          />
         )}
         {status === 'ready' && filteredRows.length === 0 && (
           <EmptyState
