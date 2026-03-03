@@ -31,9 +31,8 @@ export const AppLayout = () => {
       />
 
       <div
-        className={`transition-[padding-left] duration-300 ease-out ${
-          collapsed ? `lg:pl-[${SIDEBAR_COLLAPSED}px]` : `lg:pl-[${SIDEBAR_EXPANDED}px]`
-        }`}
+        className="transition-[padding-left] duration-300 ease-out lg:pl-[var(--sbw)]"
+        style={{ ['--sbw' as any]: `${collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED}px` }}
       >
         <Topbar
           onOpenSidebar={() => setMobileOpen(true)}

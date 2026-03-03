@@ -17,11 +17,16 @@ export const App = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    bindAuthHandlers(() => token, () => {
-      clearSession();
-      navigate('/login', { replace: true });
-    });
+    bindAuthHandlers(
+      () => token,
+      () => {
+        clearSession();
+        navigate('/login', { replace: true });
+      },
+    );
   }, [token, clearSession, navigate]);
+
+  <div className="p-6 bg-red-600 text-white text-2xl font-bold">TAILWIND OK</div>;
 
   return (
     <Routes>
