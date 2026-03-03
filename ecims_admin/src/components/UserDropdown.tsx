@@ -1,3 +1,4 @@
+// src/components/UserDropdown.tsx
 import { useEffect, useRef, useState } from 'react';
 import { FiChevronDown, FiLogOut, FiUser } from 'react-icons/fi';
 
@@ -12,16 +13,22 @@ export const UserDropdown = ({ userName, userRole, onLogout }: UserDropdownProps
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const onClickOutside = (event: MouseEvent) => {
       if (!wrapperRef.current) return;
       if (event.target instanceof Node && !wrapperRef.current.contains(event.target)) {
         setOpen(false);
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+
+    document.addEventListener('mousedown', onClickOutside);
+    document.addEventListener('keydown', onEscape);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('mousedown', onClickOutside);
+      document.removeEventListener('keydown', onEscape);
     };
   }, []);
 
@@ -47,7 +54,9 @@ export const UserDropdown = ({ userName, userRole, onLogout }: UserDropdownProps
         }`}
       >
         <div className="rounded-lg border border-slate-200/80 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800">
-          <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{userName}</p>
+          <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+            {userName}
+          </p>
           <p className="truncate text-xs text-slate-500 dark:text-slate-400">{userRole}</p>
         </div>
         <button

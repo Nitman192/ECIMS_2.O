@@ -1,5 +1,4 @@
 {
-  "chatgpt.openOnStartup": true,
   "sonarlint.connectedMode.project": {
     "connectionId": "nitman192",
     "projectKey": "Nitman192_ECIMS_2.O"

@@ -1,3 +1,4 @@
+// src/components/ChartCard.tsx
 import type { ReactNode } from 'react';
 import { Card } from './ui/Card';
 

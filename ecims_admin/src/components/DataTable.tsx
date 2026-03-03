@@ -1,66 +1,68 @@
+// src/components/DataTable.tsx
 import type { ReactNode } from 'react';
-import { Card } from './ui/Card';
 
-type DataTableColumn<T> = {
+type Column<T> = {
   key: keyof T | string;
   header: string;
-  render?: (row: T) => ReactNode;
   className?: string;
+  render?: (row: T) => ReactNode;
 };
 
 type DataTableProps<T> = {
-  title?: string;
-  subtitle?: string;
-  columns: DataTableColumn<T>[];
+  columns: Array<Column<T>>;
   rows: T[];
+  rowKey: (row: T, index: number) => string;
   emptyText?: string;
 };
 
-export const DataTable = <T extends Record<string, ReactNode>>({
-  title,
-  subtitle,
+export const DataTable = <T,>({
   columns,
   rows,
-  emptyText = 'No data available'
+  rowKey,
+  emptyText = 'No records found.',
 }: DataTableProps<T>) => {
   return (
-    <Card title={title} subtitle={subtitle} className="overflow-hidden p-0">
+    <div className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse">
-          <thead className="bg-slate-50 dark:bg-slate-800/70">
+        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+          <thead className="bg-slate-50 dark:bg-slate-950/60">
             <tr>
               {columns.map((column) => (
                 <th
                   key={String(column.key)}
-                  className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400 ${column.className ?? ''}`}
+                  className={`whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 ${column.className ?? ''}`}
                 >
                   {column.header}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
+
+          <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
             {rows.length === 0 && (
               <tr>
                 <td
-                  className="px-4 py-12 text-center text-sm text-slate-500 dark:text-slate-400"
                   colSpan={columns.length}
+                  className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400"
                 >
                   {emptyText}
                 </td>
               </tr>
             )}
-            {rows.map((row, rowIndex) => (
+
+            {rows.map((row, index) => (
               <tr
-                key={`row-${rowIndex}`}
-                className="border-t border-slate-200/80 transition hover:bg-slate-50 dark:border-slate-800/80 dark:hover:bg-slate-800/30"
+                key={rowKey(row, index)}
+                className="transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
               >
                 {columns.map((column) => (
                   <td
-                    key={`${String(column.key)}-${rowIndex}`}
-                    className={`px-4 py-3 text-sm text-slate-700 dark:text-slate-300 ${column.className ?? ''}`}
+                    key={String(column.key)}
+                    className="whitespace-nowrap px-4 py-3 text-sm text-slate-700 dark:text-slate-200"
                   >
-                    {column.render ? column.render(row) : row[column.key as keyof T]}
+                    {column.render
+                      ? column.render(row)
+                      : String((row as Record<string, unknown>)[String(column.key)] ?? '')}
                   </td>
                 ))}
               </tr>
@@ -68,6 +70,6 @@ export const DataTable = <T extends Record<string, ReactNode>>({
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
 };

@@ -1,7 +1,8 @@
+// src/pages/DashboardPage.tsx
 import { FiActivity, FiAlertCircle, FiPower, FiShield } from 'react-icons/fi';
 import {
-  Cell,
   CartesianGrid,
+  Cell,
   Legend,
   Line,
   LineChart,
@@ -10,17 +11,42 @@ import {
   ResponsiveContainer,
   Tooltip,
   XAxis,
-  YAxis
+  YAxis,
 } from 'recharts';
 import { ChartCard } from '../components/ChartCard';
+import { DataTable } from '../components/DataTable';
 import { PageHeader } from '../components/ui/PageHeader';
 import { StatCard } from '../components/ui/StatCard';
 
 const stats = [
-  { label: 'Active Agents', value: '1,284', trendLabel: '+4.8% vs last week', trend: 'up', icon: FiActivity },
-  { label: 'Open Alerts', value: '37', trendLabel: '-12.3% vs last week', trend: 'down', icon: FiAlertCircle },
-  { label: 'Kill Switch', value: 'Armed', trendLabel: 'No state changes', trend: 'neutral', icon: FiPower },
-  { label: 'Enforcement', value: 'Strict', trendLabel: 'Policy v2.4 active', trend: 'up', icon: FiShield }
+  {
+    label: 'Active Agents',
+    value: '1,284',
+    trendLabel: '+4.8% vs last week',
+    trend: 'up',
+    icon: FiActivity,
+  },
+  {
+    label: 'Open Alerts',
+    value: '37',
+    trendLabel: '-12.3% vs last week',
+    trend: 'down',
+    icon: FiAlertCircle,
+  },
+  {
+    label: 'Kill Switch',
+    value: 'Armed',
+    trendLabel: 'No state changes',
+    trend: 'neutral',
+    icon: FiPower,
+  },
+  {
+    label: 'Enforcement',
+    value: 'Strict',
+    trendLabel: 'Policy v2.4 active',
+    trend: 'up',
+    icon: FiShield,
+  },
 ] as const;
 
 const eventsByHour = [
@@ -35,17 +61,35 @@ const eventsByHour = [
   { hour: '16', events: 17 },
   { hour: '18', events: 27 },
   { hour: '20', events: 24 },
-  { hour: '22', events: 14 }
+  { hour: '22', events: 14 },
 ];
 
 const policyDistribution = [
   { name: 'Strict', value: 48 },
   { name: 'Monitor', value: 27 },
   { name: 'Permissive', value: 18 },
-  { name: 'Disabled', value: 7 }
+  { name: 'Disabled', value: 7 },
 ];
 
-const PIE_COLORS = ['#0f766e', '#0369a1', '#f59e0b', '#dc2626'];
+const recentIncidents = [
+  {
+    id: 'INC-4012',
+    asset: 'ENG-LAPTOP-17',
+    severity: 'High',
+    status: 'Investigating',
+    time: '2m ago',
+  },
+  {
+    id: 'INC-4008',
+    asset: 'FIN-SERVER-03',
+    severity: 'Medium',
+    status: 'Monitoring',
+    time: '19m ago',
+  },
+  { id: 'INC-4001', asset: 'OPS-DESKTOP-22', severity: 'Low', status: 'Resolved', time: '34m ago' },
+];
+
+const PIE_COLORS = ['#0891b2', '#0ea5e9', '#f59e0b', '#ef4444'];
 
 export const DashboardPage = () => {
   return (
@@ -69,26 +113,37 @@ export const DashboardPage = () => {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
-        <ChartCard title="Events Per Hour" subtitle="Total telemetry events observed across protected endpoints">
+        <ChartCard
+          title="Events Per Hour"
+          subtitle="Telemetry events observed across protected endpoints"
+        >
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={eventsByHour} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
+            <LineChart data={eventsByHour}>
               <CartesianGrid strokeDasharray="4 4" stroke="#64748b33" />
-              <XAxis dataKey="hour" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="hour"
+                tick={{ fill: '#94a3b8', fontSize: 12 }}
+                axisLine={false}
+                tickLine={false}
+              />
               <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip />
               <Line
                 type="monotone"
                 dataKey="events"
-                stroke="#0f766e"
+                stroke="#0891b2"
                 strokeWidth={3}
-                dot={{ fill: '#0f766e', r: 4 }}
+                dot={{ fill: '#0891b2', r: 4 }}
                 activeDot={{ r: 6 }}
               />
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
 
-        <ChartCard title="Policy Distribution" subtitle="Current rollout mode split across enrolled machines">
+        <ChartCard
+          title="Policy Distribution"
+          subtitle="Current rollout mode split across enrolled machines"
+        >
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
@@ -110,6 +165,39 @@ export const DashboardPage = () => {
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          Recent Incidents
+        </h2>
+        <DataTable
+          columns={[
+            { key: 'id', header: 'Incident ID' },
+            { key: 'asset', header: 'Asset' },
+            {
+              key: 'severity',
+              header: 'Severity',
+              render: (row) => {
+                const tone =
+                  row.severity === 'High'
+                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'
+                    : row.severity === 'Medium'
+                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                      : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300';
+                return (
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
+                    {row.severity}
+                  </span>
+                );
+              },
+            },
+            { key: 'status', header: 'Status' },
+            { key: 'time', header: 'Updated' },
+          ]}
+          rows={recentIncidents}
+          rowKey={(row) => row.id}
+        />
       </section>
     </div>
   );
