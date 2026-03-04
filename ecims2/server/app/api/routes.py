@@ -23,6 +23,8 @@ from app.schemas.admin import (
     AgentRevokeRequest,
     AuditExportRequest,
     BaselineApproveRequest,
+    EnrollmentTokenIssueRequest,
+    EnrollmentTokenRevokeRequest,
     DeviceAllowTokenIssueRequest,
     DeviceAllowTokenRevokeRequest,
     DeviceKillSwitchRequest,
@@ -32,6 +34,7 @@ from app.schemas.admin import (
     MaintenanceScheduleCreateRequest,
     MaintenanceSchedulePreviewRequest,
     MaintenanceScheduleStateUpdateRequest,
+    OfflineEnrollmentKitImportRequest,
     RemoteActionTaskCreateRequest,
     DeviceUnblockApproveRequest,
     DeviceUnblockRequestCreate,
@@ -39,6 +42,7 @@ from app.schemas.admin import (
 from app.schemas.ai import AIScoreRunRequest, AITrainRequest
 from app.schemas.agent import (
     AgentCommandAckRequest,
+    AgentEnrollRequest,
     AgentCommandOut,
     AgentHeartbeatRequest,
     AgentRegisterRequest,
@@ -65,6 +69,7 @@ from app.services.audit_service import AuditService
 from app.services.device_allow_token_service import DeviceAllowTokenService
 from app.services.device_control_state_service import DeviceControlStateService
 from app.services.device_policy_service import DevicePolicyService
+from app.services.enrollment_service import EnrollmentService
 from app.services.event_service import EventService
 from app.services.feature_flag_service import FeatureFlagService
 from app.services.maintenance_schedule_service import MaintenanceScheduleService
@@ -189,6 +194,44 @@ def _raise_schedule_error(exc: ValueError) -> None:
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
 
 
+def _raise_enrollment_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_MODE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid enrollment mode") from exc
+    if code == "INVALID_STATUS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid enrollment status") from exc
+    if code == "INVALID_REASON_CODE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reason code") from exc
+    if code == "INVALID_MAX_USES":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Max uses must be between 1 and 1000") from exc
+    if code == "INVALID_EXPIRY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expiry must be between 1 and 720 hours") from exc
+    if code == "INVALID_IDEMPOTENCY_KEY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid idempotency key") from exc
+    if code == "IDEMPOTENCY_KEY_CONFLICT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key already used with a different payload",
+        ) from exc
+    if code == "KIT_INVALID":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid offline enrollment kit bundle") from exc
+    if code == "KIT_CONFLICT":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Offline kit conflict detected") from exc
+    if code == "TOKEN_CONFLICT":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Enrollment token conflict detected") from exc
+    if code == "TOKEN_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollment token not found") from exc
+    if code == "TOKEN_INVALID":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid enrollment token") from exc
+    if code == "TOKEN_REVOKED":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Enrollment token is revoked") from exc
+    if code == "TOKEN_EXPIRED":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Enrollment token is expired") from exc
+    if code == "TOKEN_CONSUMED":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Enrollment token is fully consumed") from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+
+
 @router.post("/auth/login", response_model=TokenResponse)
 def auth_login(payload: LoginRequest) -> TokenResponse:
     user = UserService.verify_credentials(payload.username, payload.password)
@@ -253,6 +296,60 @@ def register_agent(
 ) -> AgentRegisterResponse:
     require_mtls_client_identity(request, claimed_agent_id=None)
     agent_id, token = AgentService.register_agent(payload.name, payload.hostname)
+    return AgentRegisterResponse(agent_id=agent_id, token=token)
+
+
+@router.post("/agents/enroll", response_model=AgentRegisterResponse)
+def enroll_agent(
+    payload: AgentEnrollRequest,
+    request: Request,
+    _: None = Depends(require_registration_allowed),
+) -> AgentRegisterResponse:
+    require_mtls_client_identity(request, claimed_agent_id=None)
+    try:
+        consumed = EnrollmentService.consume_token_for_enrollment(
+            token_value=payload.enrollment_token,
+            agent_name=payload.name,
+            hostname=payload.hostname,
+            source="AGENT_ENROLL",
+        )
+    except ValueError as exc:
+        _raise_enrollment_error(exc)
+
+    agent_id, token = AgentService.register_agent(payload.name, payload.hostname)
+
+    with get_db() as conn:
+        use_row = conn.execute(
+            """
+            SELECT id
+            FROM enrollment_token_uses
+            WHERE token_id = ? AND agent_id IS NULL AND source = 'AGENT_ENROLL'
+              AND hostname = ? AND agent_name = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (consumed["token_id"], payload.hostname.strip(), payload.name.strip()),
+        ).fetchone()
+        if use_row:
+            conn.execute(
+                "UPDATE enrollment_token_uses SET agent_id = ? WHERE id = ?",
+                (agent_id, int(use_row["id"])),
+            )
+        AuditService.log(
+            conn,
+            actor_type="AGENT",
+            actor_id=agent_id,
+            action="AGENT_ENROLLED_WITH_TOKEN",
+            target_type="ENROLLMENT_TOKEN",
+            target_id=consumed["token_id"],
+            message="Agent enrolled using enrollment token",
+            metadata={
+                "token_status": consumed["status"],
+                "used_count": consumed["used_count"],
+                "max_uses": consumed["max_uses"],
+                "hostname": payload.hostname.strip(),
+            },
+        )
     return AgentRegisterResponse(agent_id=agent_id, token=token)
 
 
@@ -904,6 +1001,103 @@ def admin_update_maintenance_schedule_state(
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
     return item
+
+
+@router.get("/admin/ops/enrollment/tokens")
+def admin_list_enrollment_tokens(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    mode_filter: str | None = Query(default=None, alias="mode"),
+    status_filter: str | None = Query(default=None, alias="status"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = EnrollmentService.list_tokens(
+            page=page,
+            page_size=page_size,
+            mode_filter=mode_filter,
+            status_filter=status_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_enrollment_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="ENROLLMENT_TOKEN_LIST_VIEWED",
+            target_type="ENROLLMENT_TOKEN",
+            target_id="all",
+            message="Admin viewed enrollment token list",
+            metadata={
+                "page": page,
+                "page_size": page_size,
+                "mode": mode_filter,
+                "status": status_filter,
+                "query": q,
+                "count": len(payload["items"]),
+            },
+        )
+    return payload
+
+
+@router.post("/admin/ops/enrollment/tokens", status_code=status.HTTP_201_CREATED)
+def admin_issue_enrollment_token(
+    payload: EnrollmentTokenIssueRequest,
+    response: Response,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item, created, token_value, cli, offline_kit_bundle = EnrollmentService.issue_token(
+            mode=payload.mode,
+            expires_in_hours=payload.expires_in_hours,
+            max_uses=payload.max_uses,
+            reason_code=payload.reason_code,
+            reason=payload.reason,
+            idempotency_key=payload.idempotency_key,
+            metadata=payload.metadata,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_enrollment_error(exc)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {
+        "item": item,
+        "created": created,
+        "enrollment_token": token_value,
+        "cli_snippets": cli,
+        "offline_kit_bundle": offline_kit_bundle,
+    }
+
+
+@router.post("/admin/ops/enrollment/tokens/{token_id}/revoke")
+def admin_revoke_enrollment_token(
+    token_id: str,
+    payload: EnrollmentTokenRevokeRequest,
+    admin: dict = Depends(require_admin),
+):
+    item = EnrollmentService.revoke_token(token_id=token_id, reason=payload.reason, actor_id=admin["id"])
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Enrollment token not found")
+    return {"status": "revoked", "item": item}
+
+
+@router.post("/admin/ops/enrollment/offline-kit/import")
+def admin_import_offline_enrollment_kit(
+    payload: OfflineEnrollmentKitImportRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item, created_token, created_kit = EnrollmentService.import_offline_kit(
+            bundle=payload.bundle,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_enrollment_error(exc)
+    return {"item": item, "created_token": created_token, "created_kit": created_kit}
 
 
 

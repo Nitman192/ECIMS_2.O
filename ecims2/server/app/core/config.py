@@ -61,6 +61,10 @@ class Settings(BaseModel):
     data_key_path: str = "configs/data_keys.json"
     data_key_env: str = "ECIMS_DATA_KEY_B64"
 
+    maintenance_scheduler_enabled: bool = False
+    maintenance_scheduler_interval_sec: int = Field(default=60, ge=1, le=3600)
+    maintenance_scheduler_batch_limit: int = Field(default=20, ge=1, le=100)
+
 
 def _apply_env_override(raw: dict[str, Any], field: str, env_var: str) -> None:
     value = os.getenv(env_var)
@@ -103,6 +107,8 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "device_allow_token_private_key_path", "ECIMS_DEVICE_ALLOW_TOKEN_PRIVATE_KEY_PATH")
     _apply_env_override(raw, "data_key_path", "ECIMS_DATA_KEY_PATH")
     _apply_env_override(raw, "data_key_env", "ECIMS_DATA_KEY_ENV")
+    _apply_env_override(raw, "maintenance_scheduler_interval_sec", "ECIMS_MAINTENANCE_SCHEDULER_INTERVAL_SEC")
+    _apply_env_override(raw, "maintenance_scheduler_batch_limit", "ECIMS_MAINTENANCE_SCHEDULER_BATCH_LIMIT")
 
     env_data_encryption_enabled = os.getenv("ECIMS_DATA_ENCRYPTION_ENABLED")
     if env_data_encryption_enabled:
@@ -115,5 +121,9 @@ def get_settings() -> Settings:
     env_mtls_required = os.getenv("ECIMS_MTLS_REQUIRED")
     if env_mtls_required:
         raw["mtls_required"] = env_mtls_required.strip().lower() in {"1", "true", "yes"}
+
+    env_maintenance_scheduler_enabled = os.getenv("ECIMS_MAINTENANCE_SCHEDULER_ENABLED")
+    if env_maintenance_scheduler_enabled:
+        raw["maintenance_scheduler_enabled"] = env_maintenance_scheduler_enabled.strip().lower() in {"1", "true", "yes"}
 
     return Settings(**raw)

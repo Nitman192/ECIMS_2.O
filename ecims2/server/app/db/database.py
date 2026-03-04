@@ -402,6 +402,63 @@ def init_db() -> dict[str, int | bool]:
             );
 
             CREATE INDEX IF NOT EXISTS idx_maintenance_schedule_runs_schedule_started ON maintenance_schedule_runs(schedule_id, started_at);
+            CREATE TABLE IF NOT EXISTS enrollment_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_id TEXT NOT NULL UNIQUE,
+                token_secret_hash TEXT NOT NULL,
+                mode TEXT NOT NULL CHECK(mode IN ('ONLINE', 'OFFLINE')),
+                status TEXT NOT NULL CHECK(status IN ('ACTIVE', 'REVOKED', 'EXPIRED', 'CONSUMED')),
+                expires_at TEXT NOT NULL,
+                max_uses INTEGER NOT NULL,
+                used_count INTEGER NOT NULL DEFAULT 0,
+                reason_code TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                request_hash TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_used_at TEXT,
+                revoked_at TEXT,
+                revoked_by_user_id INTEGER,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (revoked_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_enrollment_tokens_status_expiry ON enrollment_tokens(status, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_enrollment_tokens_mode_status ON enrollment_tokens(mode, status);
+            CREATE TABLE IF NOT EXISTS enrollment_token_uses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_id TEXT NOT NULL,
+                agent_id INTEGER,
+                source TEXT NOT NULL,
+                hostname TEXT,
+                agent_name TEXT,
+                used_at TEXT NOT NULL,
+                details_json TEXT NOT NULL DEFAULT '{}',
+                FOREIGN KEY (token_id) REFERENCES enrollment_tokens(token_id) ON DELETE CASCADE,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_enrollment_token_uses_token_time ON enrollment_token_uses(token_id, used_at);
+            CREATE TABLE IF NOT EXISTS offline_enrollment_kits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kit_id TEXT NOT NULL UNIQUE,
+                token_id TEXT NOT NULL,
+                bundle_hash TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('EXPORTED', 'IMPORTED')),
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                imported_at TEXT,
+                created_by_user_id INTEGER,
+                imported_by_user_id INTEGER,
+                FOREIGN KEY (token_id) REFERENCES enrollment_tokens(token_id) ON DELETE CASCADE,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (imported_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_offline_kits_token_status ON offline_enrollment_kits(token_id, status);
             CREATE TABLE IF NOT EXISTS ai_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,

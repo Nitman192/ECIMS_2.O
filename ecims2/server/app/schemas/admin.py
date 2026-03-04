@@ -120,3 +120,21 @@ class MaintenanceScheduleCreateRequest(MaintenanceSchedulePreviewRequest):
 class MaintenanceScheduleStateUpdateRequest(BaseModel):
     status: str = Field(pattern=r"^(DRAFT|ACTIVE|PAUSED)$")
     reason: str = Field(min_length=5, max_length=1024)
+
+
+class EnrollmentTokenIssueRequest(BaseModel):
+    mode: str = Field(pattern=r"^(ONLINE|OFFLINE)$")
+    expires_in_hours: int = Field(ge=1, le=720)
+    max_uses: int = Field(ge=1, le=1000)
+    reason_code: str = Field(min_length=2, max_length=64, pattern=r"^[A-Z0-9_-]+$")
+    reason: str = Field(min_length=5, max_length=1024)
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    metadata: dict[str, Any] | None = None
+
+
+class EnrollmentTokenRevokeRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=1024)
+
+
+class OfflineEnrollmentKitImportRequest(BaseModel):
+    bundle: dict[str, Any]

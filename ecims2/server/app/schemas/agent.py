@@ -11,6 +11,12 @@ class AgentRegisterRequest(BaseModel):
     hostname: str = Field(min_length=1, max_length=255)
 
 
+class AgentEnrollRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    hostname: str = Field(min_length=1, max_length=255)
+    enrollment_token: str = Field(min_length=12, max_length=512)
+
+
 class AgentRegisterResponse(BaseModel):
     agent_id: int
     token: str

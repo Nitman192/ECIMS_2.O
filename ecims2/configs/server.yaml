@@ -65,3 +65,9 @@ agent_rate_limit_window_sec: 60
 device_allow_token_private_key_path: "configs/device_allow_token_private.pem"
 device_allow_token_public_key_path: "configs/device_allow_token_public.pem"
 allow_token_max_duration_minutes: 240
+
+# Phase 5 automatic maintenance runner loop
+# For LAN/on-prem deployments enable this to execute due windows periodically.
+maintenance_scheduler_enabled: true
+maintenance_scheduler_interval_sec: 60
+maintenance_scheduler_batch_limit: 20

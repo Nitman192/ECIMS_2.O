@@ -268,5 +268,79 @@ export interface MaintenanceScheduleStatePayload {
   reason: string;
 }
 
+export type EnrollmentMode = 'ONLINE' | 'OFFLINE';
+export type EnrollmentStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED' | 'CONSUMED';
+export type EnrollmentReasonCode =
+  | 'MAINTENANCE'
+  | 'OFFLINE_AIRGAP'
+  | 'BOOTSTRAP'
+  | 'INCIDENT_RESPONSE'
+  | 'TESTING'
+  | 'COMPLIANCE';
+
+export interface EnrollmentToken {
+  id: number;
+  token_id: string;
+  mode: EnrollmentMode | string;
+  status: EnrollmentStatus | string;
+  expires_at: string;
+  max_uses: number;
+  used_count: number;
+  remaining_uses: number;
+  reason_code: EnrollmentReasonCode | string;
+  reason: string;
+  metadata: Record<string, unknown>;
+  created_by_user_id: number;
+  created_by_username?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_used_at?: string | null;
+  revoked_at?: string | null;
+  revoked_by_user_id?: number | null;
+  revoked_by_username?: string | null;
+}
+
+export interface EnrollmentTokenListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: EnrollmentToken[];
+}
+
+export interface EnrollmentTokenIssuePayload {
+  mode: EnrollmentMode;
+  expires_in_hours: number;
+  max_uses: number;
+  reason_code: EnrollmentReasonCode;
+  reason: string;
+  idempotency_key: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EnrollmentTokenIssueResponse {
+  item: EnrollmentToken;
+  created: boolean;
+  enrollment_token?: string | null;
+  cli_snippets?: {
+    powershell: string;
+    linux: string;
+  } | null;
+  offline_kit_bundle?: Record<string, unknown> | null;
+}
+
+export interface EnrollmentTokenRevokePayload {
+  reason: string;
+}
+
+export interface OfflineEnrollmentKitImportPayload {
+  bundle: Record<string, unknown>;
+}
+
+export interface OfflineEnrollmentKitImportResponse {
+  item: EnrollmentToken;
+  created_token: boolean;
+  created_kit: boolean;
+}
+
 export interface Agent { id: number; hostname: string; name: string; last_seen: string; status: string; device_mode_override?: string }
 export interface Alert { id: number; severity: 'RED' | 'YELLOW' | 'GREEN' | string; alert_type: string; message: string; ts: string; status: string }

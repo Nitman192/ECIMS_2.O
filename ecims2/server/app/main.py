@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 import uuid
 from collections import defaultdict, deque
@@ -22,6 +23,7 @@ from app.licensing_core.policy_state import set_policy_state
 from app.licensing_core.state import set_license_state
 from app.services.audit_service import AuditService
 from app.security.storage_crypto import get_crypto_status
+from app.services.maintenance_schedule_service import MaintenanceScheduleService
 from app.services.user_service import UserService
 from app.utils.request_context import REQUEST_ID
 
@@ -63,6 +65,8 @@ class SlidingWindowRateLimiter:
 
 
 _rate_limiter = SlidingWindowRateLimiter()
+_maintenance_scheduler_stop = threading.Event()
+_maintenance_scheduler_thread: threading.Thread | None = None
 
 
 def _resolve_path(path_str: str) -> str:
@@ -71,6 +75,87 @@ def _resolve_path(path_str: str) -> str:
         return str(candidate)
     root = Path(__file__).resolve().parents[2]
     return str(root / candidate)
+
+
+def _resolve_scheduler_actor_id() -> int | None:
+    with get_db() as conn:
+        admin_row = conn.execute(
+            "SELECT id FROM users WHERE role = 'ADMIN' AND is_active = 1 ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        if admin_row:
+            return int(admin_row["id"])
+
+        fallback = conn.execute(
+            "SELECT id FROM users WHERE is_active = 1 ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        if fallback:
+            return int(fallback["id"])
+    return None
+
+
+def _maintenance_scheduler_loop(*, interval_sec: int, batch_limit: int) -> None:
+    logger.info(
+        "Maintenance background scheduler started interval_sec=%s batch_limit=%s",
+        interval_sec,
+        batch_limit,
+    )
+    while not _maintenance_scheduler_stop.is_set():
+        started = time.monotonic()
+        try:
+            actor_id = _resolve_scheduler_actor_id()
+            if actor_id is None:
+                logger.warning("Maintenance background scheduler skipped tick: no active user available for actor_id")
+            else:
+                result = MaintenanceScheduleService.run_due_schedules(actor_id=actor_id, limit=batch_limit)
+                if result["due_count"] > 0 or result["failed_count"] > 0:
+                    logger.info(
+                        "Maintenance background scheduler tick due=%s executed=%s failed=%s tasks_dispatched=%s",
+                        result["due_count"],
+                        result["executed_count"],
+                        result["failed_count"],
+                        result["tasks_dispatched"],
+                    )
+        except Exception:
+            logger.exception("Maintenance background scheduler tick failed")
+
+        elapsed = time.monotonic() - started
+        wait_seconds = max(1.0, float(interval_sec) - elapsed)
+        if _maintenance_scheduler_stop.wait(wait_seconds):
+            break
+
+    logger.info("Maintenance background scheduler stopped")
+
+
+def _start_maintenance_scheduler() -> None:
+    global _maintenance_scheduler_thread
+    if not settings.maintenance_scheduler_enabled:
+        logger.info("Maintenance background scheduler disabled by configuration")
+        return
+    if _maintenance_scheduler_thread and _maintenance_scheduler_thread.is_alive():
+        return
+
+    _maintenance_scheduler_stop.clear()
+    _maintenance_scheduler_thread = threading.Thread(
+        target=_maintenance_scheduler_loop,
+        kwargs={
+            "interval_sec": int(settings.maintenance_scheduler_interval_sec),
+            "batch_limit": int(settings.maintenance_scheduler_batch_limit),
+        },
+        name="maintenance-scheduler-loop",
+        daemon=True,
+    )
+    _maintenance_scheduler_thread.start()
+
+
+def _stop_maintenance_scheduler(*, timeout_sec: float = 5.0) -> None:
+    global _maintenance_scheduler_thread
+    if not _maintenance_scheduler_thread:
+        return
+    _maintenance_scheduler_stop.set()
+    _maintenance_scheduler_thread.join(timeout=timeout_sec)
+    if _maintenance_scheduler_thread.is_alive():
+        logger.warning("Maintenance background scheduler did not stop cleanly before timeout")
+    _maintenance_scheduler_thread = None
 
 
 def _is_weak_jwt_secret(secret: str) -> bool:
@@ -280,6 +365,12 @@ def on_startup() -> None:
     logger.info("Policy mode=%s reason=%s", policy_state.policy.mode, policy_state.reason)
     logger.info("License status valid=%s reason=%s", license_state.valid, license_state.reason)
     logger.info("Storage encryption enabled=%s key_id=%s reason=%s", crypto_status.encryption_enabled, crypto_status.active_key_id, crypto_status.reason)
+    _start_maintenance_scheduler()
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    _stop_maintenance_scheduler()
 
 
 @app.get("/health")

@@ -10,6 +10,11 @@ import type {
   FeatureFlagCreatePayload,
   FeatureFlagListResponse,
   FeatureFlagSetStatePayload,
+  EnrollmentToken,
+  EnrollmentTokenIssuePayload,
+  EnrollmentTokenIssueResponse,
+  EnrollmentTokenListResponse,
+  EnrollmentTokenRevokePayload,
   LoginResponse,
   MaintenanceScheduleConflictResponse,
   MaintenanceScheduleCreatePayload,
@@ -19,6 +24,8 @@ import type {
   MaintenanceSchedulePreviewResponse,
   MaintenanceScheduleRunDueResponse,
   MaintenanceScheduleStatePayload,
+  OfflineEnrollmentKitImportPayload,
+  OfflineEnrollmentKitImportResponse,
   RemoteActionTaskCreatePayload,
   RemoteActionTaskCreateResponse,
   RemoteActionTaskListResponse,
@@ -76,4 +83,12 @@ export const CoreApi = {
     api.post(`/admin/ops/schedules/${scheduleId}/state`, payload),
   runDueSchedules: (limit = 20) =>
     api.post<MaintenanceScheduleRunDueResponse>('/admin/ops/schedules/run-due', null, { params: { limit } }),
+  listEnrollmentTokens: (params?: { page?: number; page_size?: number; mode?: string; status?: string; q?: string }) =>
+    api.get<EnrollmentTokenListResponse>('/admin/ops/enrollment/tokens', { params }),
+  issueEnrollmentToken: (payload: EnrollmentTokenIssuePayload) =>
+    api.post<EnrollmentTokenIssueResponse>('/admin/ops/enrollment/tokens', payload),
+  revokeEnrollmentToken: (tokenId: string, payload: EnrollmentTokenRevokePayload) =>
+    api.post<{ status: string; item: EnrollmentToken }>(`/admin/ops/enrollment/tokens/${tokenId}/revoke`, payload),
+  importOfflineEnrollmentKit: (payload: OfflineEnrollmentKitImportPayload) =>
+    api.post<OfflineEnrollmentKitImportResponse>('/admin/ops/enrollment/offline-kit/import', payload),
 };
