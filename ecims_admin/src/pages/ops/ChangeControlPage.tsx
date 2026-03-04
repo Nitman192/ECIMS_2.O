@@ -1,5 +1,16 @@
 import { useEffect, useState } from 'react';
-import { FiArchive, FiCheckSquare, FiDownload, FiEye, FiPlus, FiRefreshCw, FiSearch, FiShield, FiXCircle } from 'react-icons/fi';
+import {
+  FiArchive,
+  FiCheckSquare,
+  FiDownload,
+  FiEye,
+  FiPlus,
+  FiRefreshCw,
+  FiRotateCcw,
+  FiSearch,
+  FiShield,
+  FiXCircle,
+} from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
@@ -17,11 +28,14 @@ import type {
   ChangeRequestStatus,
   StateBackup,
   StateBackupMeta,
+  StateBackupRestorePreviewResponse,
+  StateBackupRestoreTableDiff,
   StateBackupScope,
 } from '../../types';
 
 const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
 const makeIdempotencyKey = () => `change-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const makeRestoreIdempotencyKey = () => `restore-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : '-');
 
 const parseJsonObject = (raw: string): Record<string, unknown> => {
@@ -32,6 +46,15 @@ const parseJsonObject = (raw: string): Record<string, unknown> => {
     throw new Error('Invalid JSON object');
   }
   return parsed as Record<string, unknown>;
+};
+
+const parseTablesCsv = (value: string): string[] | undefined => {
+  const parts = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return undefined;
+  return Array.from(new Set(parts));
 };
 
 const statusBadgeClass = (status: string) => {
@@ -82,6 +105,18 @@ const defaultBackupCreateForm: BackupCreateForm = {
   includeSensitive: false,
 };
 
+type RestorePreviewForm = {
+  backupId: string;
+  selectedTablesCsv: string;
+  allowDeletes: boolean;
+};
+
+const defaultRestorePreviewForm: RestorePreviewForm = {
+  backupId: '',
+  selectedTablesCsv: '',
+  allowDeletes: false,
+};
+
 export const ChangeControlPage = () => {
   const [rows, setRows] = useState<ChangeRequestItem[]>([]);
   const [backupRows, setBackupRows] = useState<StateBackupMeta[]>([]);
@@ -112,6 +147,17 @@ export const ChangeControlPage = () => {
   const [backupViewOpen, setBackupViewOpen] = useState(false);
   const [backupViewBusy, setBackupViewBusy] = useState(false);
   const [backupViewData, setBackupViewData] = useState<StateBackup | null>(null);
+
+  const [restorePreviewOpen, setRestorePreviewOpen] = useState(false);
+  const [restorePreviewBusy, setRestorePreviewBusy] = useState(false);
+  const [restorePreviewForm, setRestorePreviewForm] = useState<RestorePreviewForm>(defaultRestorePreviewForm);
+  const [restorePreviewData, setRestorePreviewData] = useState<StateBackupRestorePreviewResponse | null>(null);
+
+  const [restoreApplyOpen, setRestoreApplyOpen] = useState(false);
+  const [restoreApplyBusy, setRestoreApplyBusy] = useState(false);
+  const [restoreApplyReason, setRestoreApplyReason] = useState('');
+  const [restoreApplyIdempotencyKey, setRestoreApplyIdempotencyKey] = useState(makeRestoreIdempotencyKey());
+  const [restoreApplyConfirm, setRestoreApplyConfirm] = useState(false);
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -303,6 +349,92 @@ export const ChangeControlPage = () => {
     URL.revokeObjectURL(url);
   };
 
+  const openRestorePreview = (backup: StateBackupMeta) => {
+    setRestorePreviewForm({
+      backupId: backup.backup_id,
+      selectedTablesCsv: '',
+      allowDeletes: false,
+    });
+    setRestorePreviewData(null);
+    setRestorePreviewOpen(true);
+  };
+
+  const runRestorePreview = async () => {
+    if (!restorePreviewForm.backupId) return;
+    setRestorePreviewBusy(true);
+    try {
+      const response = await CoreApi.previewStateBackupRestore(restorePreviewForm.backupId, {
+        tables: parseTablesCsv(restorePreviewForm.selectedTablesCsv),
+        allow_deletes: restorePreviewForm.allowDeletes,
+      });
+      setRestorePreviewData(response.data);
+      pushToast({
+        title: 'Restore preview generated',
+        description: `${response.data.summary.changed_rows} rows will change across ${response.data.summary.table_count} tables.`,
+        tone: 'info',
+      });
+    } catch (error: any) {
+      setRestorePreviewData(null);
+      pushToast({ title: 'Restore preview failed', description: parseError(error, 'Unable to generate restore preview'), tone: 'error' });
+    } finally {
+      setRestorePreviewBusy(false);
+    }
+  };
+
+  const openRestoreApply = () => {
+    if (!restorePreviewData) {
+      pushToast({ title: 'Generate preview first', description: 'Preview is required before applying restore.', tone: 'warning' });
+      return;
+    }
+    setRestoreApplyReason('');
+    setRestoreApplyIdempotencyKey(makeRestoreIdempotencyKey());
+    setRestoreApplyConfirm(false);
+    setRestoreApplyOpen(true);
+  };
+
+  const applyRestore = async () => {
+    if (!restorePreviewData) {
+      pushToast({ title: 'Restore preview missing', tone: 'warning' });
+      return;
+    }
+    if (restoreApplyReason.trim().length < 5) {
+      pushToast({ title: 'Reason should be at least 5 characters', tone: 'warning' });
+      return;
+    }
+    if (restoreApplyIdempotencyKey.trim().length < 8) {
+      pushToast({ title: 'Idempotency key should be at least 8 characters', tone: 'warning' });
+      return;
+    }
+    if (!restoreApplyConfirm) {
+      pushToast({ title: 'Please confirm restore apply explicitly', tone: 'warning' });
+      return;
+    }
+
+    setRestoreApplyBusy(true);
+    try {
+      const response = await CoreApi.applyStateBackupRestore(restorePreviewData.backup_id, {
+        tables: restorePreviewData.selected_tables,
+        allow_deletes: restorePreviewData.allow_deletes,
+        reason: restoreApplyReason.trim(),
+        idempotency_key: restoreApplyIdempotencyKey.trim(),
+        confirm_apply: restoreApplyConfirm,
+      });
+      setRestoreApplyOpen(false);
+      setRestorePreviewOpen(false);
+      setRestorePreviewData(null);
+      await loadBackups();
+      pushToast({
+        title: response.data.created ? 'Restore applied' : 'Idempotent replay returned existing restore',
+        description: `Restore ID: ${response.data.item.restore_id} | Changed rows: ${response.data.item.result.summary.changed_rows}`,
+        tone: response.data.created ? 'success' : 'info',
+      });
+    } catch (error: any) {
+      pushToast({ title: 'Restore apply failed', description: parseError(error, 'Unable to apply restore'), tone: 'error' });
+    } finally {
+      setRestoreApplyBusy(false);
+    }
+  };
+
   const requestColumns: DataTableColumn<ChangeRequestItem>[] = [
     {
       key: 'request_id',
@@ -383,11 +515,42 @@ export const ChangeControlPage = () => {
       key: 'actions',
       header: 'Actions',
       render: (row) => (
-        <button type="button" className="btn-secondary h-8 px-2 text-xs" onClick={() => void openBackupView(row.backup_id)}>
-          <FiEye className="mr-1 text-xs" />
-          View
-        </button>
+        <div className="flex gap-1.5">
+          <button type="button" className="btn-secondary h-8 px-2 text-xs" onClick={() => void openBackupView(row.backup_id)}>
+            <FiEye className="mr-1 text-xs" />
+            View
+          </button>
+          <button type="button" className="btn-secondary h-8 px-2 text-xs" onClick={() => openRestorePreview(row)}>
+            <FiRotateCcw className="mr-1 text-xs" />
+            Restore
+          </button>
+        </div>
       ),
+    },
+  ];
+
+  const restorePreviewColumns: DataTableColumn<StateBackupRestoreTableDiff>[] = [
+    {
+      key: 'table',
+      header: 'Table',
+      render: (row) => (
+        <div className="flex max-w-[180px] flex-col">
+          <span className="truncate font-semibold text-slate-900 dark:text-slate-100">{row.table}</span>
+          <span className="truncate text-[11px] text-slate-500 dark:text-slate-400">{row.mode}</span>
+        </div>
+      ),
+    },
+    { key: 'to_insert', header: 'Insert' },
+    { key: 'to_update', header: 'Update' },
+    { key: 'to_delete', header: 'Delete' },
+    {
+      key: 'potential_delete_skipped',
+      header: 'Skipped Deletes',
+    },
+    {
+      key: 'warnings',
+      header: 'Warnings',
+      render: (row) => (row.warnings.length > 0 ? row.warnings.join('; ') : '-'),
     },
   ];
 
@@ -674,6 +837,96 @@ export const ChangeControlPage = () => {
             <textarea readOnly value={JSON.stringify(backupViewData.bundle, null, 2)} className="input min-h-[220px] resize-y font-mono text-xs" />
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={restorePreviewOpen}
+        title={restorePreviewForm.backupId ? `Restore Preview - ${restorePreviewForm.backupId}` : 'Restore Preview'}
+        description="Preview table-level impact before applying snapshot restore."
+        confirmLabel="Open Apply"
+        cancelLabel="Close"
+        onCancel={() => {
+          if (restorePreviewBusy) return;
+          setRestorePreviewOpen(false);
+          setRestorePreviewData(null);
+        }}
+        onConfirm={openRestoreApply}
+      >
+        <div className="space-y-3">
+          <input
+            className="input"
+            value={restorePreviewForm.selectedTablesCsv}
+            onChange={(event) => setRestorePreviewForm((prev) => ({ ...prev, selectedTablesCsv: event.target.value }))}
+            placeholder="Optional tables CSV (e.g. users,feature_flags). Empty = all tables in backup"
+          />
+          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+            <input
+              type="checkbox"
+              checked={restorePreviewForm.allowDeletes}
+              onChange={(event) => setRestorePreviewForm((prev) => ({ ...prev, allowDeletes: event.target.checked }))}
+            />
+            Allow deletes (dangerous; protected system tables still excluded)
+          </label>
+          <div className="flex justify-end">
+            <button type="button" className="btn-secondary h-8 px-3 text-xs" onClick={() => void runRestorePreview()}>
+              {restorePreviewBusy ? 'Previewing...' : 'Generate Preview'}
+            </button>
+          </div>
+
+          {restorePreviewData && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-900">
+                <p>Tables: {restorePreviewData.summary.table_count}</p>
+                <p>Changed rows: {restorePreviewData.summary.changed_rows}</p>
+                <p>Insert/Update/Delete: {restorePreviewData.summary.inserts}/{restorePreviewData.summary.updates}/{restorePreviewData.summary.deletes}</p>
+                <p>Allow deletes: {restorePreviewData.allow_deletes ? 'Yes' : 'No'}</p>
+              </div>
+              <DataTable
+                columns={restorePreviewColumns}
+                rows={restorePreviewData.table_diffs}
+                rowKey={(row) => row.table}
+                emptyText="No table diffs in preview."
+              />
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={restoreApplyOpen}
+        title={restorePreviewData ? `Apply Restore - ${restorePreviewData.backup_id}` : 'Apply Restore'}
+        description="Final confirmation for snapshot restore apply."
+        confirmLabel={restoreApplyBusy ? 'Applying...' : 'Apply Restore'}
+        cancelLabel="Cancel"
+        onCancel={() => {
+          if (restoreApplyBusy) return;
+          setRestoreApplyOpen(false);
+        }}
+        onConfirm={() => void applyRestore()}
+      >
+        <div className="space-y-3">
+          {restorePreviewData && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+              This restore can change {restorePreviewData.summary.changed_rows} rows across {restorePreviewData.summary.table_count} tables.
+            </div>
+          )}
+          <textarea
+            className="input min-h-[84px] resize-y"
+            value={restoreApplyReason}
+            onChange={(event) => setRestoreApplyReason(event.target.value)}
+            placeholder="Reason (min 5 chars)"
+          />
+          <input
+            className="input"
+            value={restoreApplyIdempotencyKey}
+            onChange={(event) => setRestoreApplyIdempotencyKey(event.target.value)}
+            placeholder="Idempotency key"
+          />
+          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+            <input type="checkbox" checked={restoreApplyConfirm} onChange={(event) => setRestoreApplyConfirm(event.target.checked)} />
+            I confirm this restore apply should execute now
+          </label>
+        </div>
       </Modal>
 
       <Card>

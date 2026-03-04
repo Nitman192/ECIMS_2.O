@@ -47,6 +47,8 @@ from app.schemas.admin import (
     PlaybookRunDecisionRequest,
     RemoteActionTaskCreateRequest,
     StateBackupCreateRequest,
+    StateBackupRestoreApplyRequest,
+    StateBackupRestorePreviewRequest,
     DeviceUnblockApproveRequest,
     DeviceUnblockRequestCreate,
 )
@@ -402,6 +404,27 @@ def _raise_backup_error(exc: ValueError) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid backup scope") from exc
     if code == "BACKUP_NOT_FOUND":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup snapshot not found") from exc
+    if code == "INVALID_CONFIRMATION":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Restore apply confirmation is required") from exc
+    if code == "INVALID_REASON":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reason must be at least 5 characters") from exc
+    if code == "INVALID_IDEMPOTENCY_KEY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid idempotency key") from exc
+    if code == "IDEMPOTENCY_KEY_CONFLICT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key already used with a different payload",
+        ) from exc
+    if code == "INVALID_TABLE_NAME":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid table name in restore selection") from exc
+    if code == "TABLE_NOT_IN_BACKUP":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected table is not present in backup") from exc
+    if code == "NO_TABLES_SELECTED":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one table must be selected") from exc
+    if code == "INVALID_BUNDLE":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Backup bundle is invalid or incompatible") from exc
+    if code == "RESTORE_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restore job not found") from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
 
 
@@ -1746,6 +1769,62 @@ def admin_get_state_backup(backup_id: str, admin: dict = Depends(require_admin))
             metadata={"scope": item["scope"], "row_count": item["row_count"]},
         )
     return item
+
+
+@router.post("/admin/ops/state-backups/{backup_id}/restore/preview")
+def admin_preview_state_backup_restore(
+    backup_id: str,
+    payload: StateBackupRestorePreviewRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        preview = StateBackupService.preview_restore(
+            backup_id=backup_id,
+            tables=payload.tables,
+            allow_deletes=payload.allow_deletes,
+        )
+    except ValueError as exc:
+        _raise_backup_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="STATE_BACKUP_RESTORE_PREVIEWED",
+            target_type="STATE_BACKUP",
+            target_id=backup_id,
+            message="State backup restore preview generated",
+            metadata={
+                "allow_deletes": bool(payload.allow_deletes),
+                "selected_tables": preview.get("selected_tables", []),
+                "changed_rows": preview.get("summary", {}).get("changed_rows", 0),
+            },
+        )
+    return preview
+
+
+@router.post("/admin/ops/state-backups/{backup_id}/restore/apply", status_code=status.HTTP_201_CREATED)
+def admin_apply_state_backup_restore(
+    backup_id: str,
+    payload: StateBackupRestoreApplyRequest,
+    response: Response,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item, created = StateBackupService.apply_restore(
+            backup_id=backup_id,
+            tables=payload.tables,
+            allow_deletes=payload.allow_deletes,
+            reason=payload.reason,
+            idempotency_key=payload.idempotency_key,
+            confirm_apply=payload.confirm_apply,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_backup_error(exc)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {"item": item, "created": created}
 
 
 

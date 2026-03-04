@@ -58,8 +58,12 @@ import type {
   RemoteActionTaskListResponse,
   RemoteActionTaskTargetListResponse,
   StateBackup,
+  StateBackupRestoreApplyPayload,
+  StateBackupRestoreApplyResponse,
   StateBackupCreatePayload,
   StateBackupListResponse,
+  StateBackupRestorePreviewPayload,
+  StateBackupRestorePreviewResponse,
   User,
 } from '../types';
 
@@ -161,4 +165,8 @@ export const CoreApi = {
     api.post<StateBackup>('/admin/ops/state-backups', payload),
   getStateBackup: (backupId: string) =>
     api.get<StateBackup>(`/admin/ops/state-backups/${backupId}`),
+  previewStateBackupRestore: (backupId: string, payload: StateBackupRestorePreviewPayload) =>
+    api.post<StateBackupRestorePreviewResponse>(`/admin/ops/state-backups/${backupId}/restore/preview`, payload),
+  applyStateBackupRestore: (backupId: string, payload: StateBackupRestoreApplyPayload) =>
+    api.post<StateBackupRestoreApplyResponse>(`/admin/ops/state-backups/${backupId}/restore/apply`, payload),
 };

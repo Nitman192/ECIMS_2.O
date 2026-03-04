@@ -333,6 +333,66 @@ class TestPhase15OpsControlPlane(unittest.TestCase):
                 self.assertEqual(listed_backups.status_code, 200, listed_backups.text)
                 self.assertGreaterEqual(int(listed_backups.json()["total"]), 1)
 
+                created_flag = client.post(
+                    "/api/v1/admin/features",
+                    headers=admin,
+                    json={
+                        "key": "phase15.restore.flag",
+                        "description": "Temporary flag for restore apply test",
+                        "scope": "GLOBAL",
+                        "is_enabled": True,
+                        "risk_level": "LOW",
+                        "reason_code": "TESTING",
+                        "reason": "Create flag to validate state backup restore apply",
+                        "confirm_risky": False,
+                    },
+                )
+                self.assertEqual(created_flag.status_code, 201, created_flag.text)
+
+                preview_restore = client.post(
+                    f"/api/v1/admin/ops/state-backups/{backup_id}/restore/preview",
+                    headers=admin,
+                    json={"tables": ["feature_flags"], "allow_deletes": True},
+                )
+                self.assertEqual(preview_restore.status_code, 200, preview_restore.text)
+                self.assertEqual(preview_restore.json()["backup_id"], backup_id)
+                self.assertEqual(preview_restore.json()["selected_tables"], ["feature_flags"])
+                self.assertGreaterEqual(int(preview_restore.json()["summary"]["changed_rows"]), 1)
+
+                applied_restore = client.post(
+                    f"/api/v1/admin/ops/state-backups/{backup_id}/restore/apply",
+                    headers=admin,
+                    json={
+                        "tables": ["feature_flags"],
+                        "allow_deletes": True,
+                        "reason": "Rollback temporary feature flag created for test",
+                        "idempotency_key": "restore-idem-001",
+                        "confirm_apply": True,
+                    },
+                )
+                self.assertEqual(applied_restore.status_code, 201, applied_restore.text)
+                self.assertTrue(applied_restore.json()["created"])
+                self.assertEqual(applied_restore.json()["item"]["status"], "APPLIED")
+                self.assertGreaterEqual(int(applied_restore.json()["item"]["result"]["summary"]["changed_rows"]), 1)
+
+                replay_restore = client.post(
+                    f"/api/v1/admin/ops/state-backups/{backup_id}/restore/apply",
+                    headers=admin,
+                    json={
+                        "tables": ["feature_flags"],
+                        "allow_deletes": True,
+                        "reason": "Rollback temporary feature flag created for test",
+                        "idempotency_key": "restore-idem-001",
+                        "confirm_apply": True,
+                    },
+                )
+                self.assertEqual(replay_restore.status_code, 200, replay_restore.text)
+                self.assertFalse(replay_restore.json()["created"])
+
+                flags_after_restore = client.get("/api/v1/admin/features", headers=admin, params={"q": "phase15.restore.flag"})
+                self.assertEqual(flags_after_restore.status_code, 200, flags_after_restore.text)
+                self.assertEqual(int(flags_after_restore.json()["total"]), 0)
+
     def test_phase15_endpoints_admin_only(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)

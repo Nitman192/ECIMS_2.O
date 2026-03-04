@@ -689,5 +689,85 @@ export interface StateBackupCreatePayload {
   include_sensitive: boolean;
 }
 
+export interface StateBackupRestorePreviewPayload {
+  tables?: string[];
+  allow_deletes: boolean;
+}
+
+export interface StateBackupRestoreTableDiff {
+  table: string;
+  mode: string;
+  key_columns: string[];
+  current_rows: number;
+  backup_rows: number;
+  to_insert: number;
+  to_update: number;
+  to_delete: number;
+  potential_delete_skipped: number;
+  unchanged: number;
+  warnings: string[];
+}
+
+export interface StateBackupRestorePreviewResponse {
+  backup_id: string;
+  scope: StateBackupScope | string;
+  allow_deletes: boolean;
+  selected_tables: string[];
+  summary: {
+    table_count: number;
+    inserts: number;
+    updates: number;
+    deletes: number;
+    changed_rows: number;
+  };
+  table_diffs: StateBackupRestoreTableDiff[];
+}
+
+export interface StateBackupRestoreApplyPayload extends StateBackupRestorePreviewPayload {
+  reason: string;
+  idempotency_key: string;
+  confirm_apply: boolean;
+}
+
+export interface StateBackupRestoreResult {
+  backup_id: string;
+  scope: StateBackupScope | string;
+  allow_deletes: boolean;
+  summary: {
+    inserted: number;
+    updated: number;
+    deleted: number;
+    changed_rows: number;
+  };
+  table_results: Array<{
+    table: string;
+    status: string;
+    inserted: number;
+    updated: number;
+    deleted: number;
+    warnings: string[];
+  }>;
+}
+
+export interface StateBackupRestoreJob {
+  id: number;
+  restore_id: string;
+  backup_id: string;
+  status: 'APPLIED' | 'FAILED' | string;
+  reason: string;
+  allow_deletes: boolean;
+  selected_tables: string[];
+  result: StateBackupRestoreResult;
+  created_by_user_id: number;
+  created_by_username?: string | null;
+  created_at: string;
+  applied_at?: string | null;
+}
+
+export interface StateBackupRestoreApplyResponse {
+  item: StateBackupRestoreJob;
+  created: boolean;
+}
+
 export interface Agent { id: number; hostname: string; name: string; last_seen: string; status: string; device_mode_override?: string }
 export interface Alert { id: number; severity: 'RED' | 'YELLOW' | 'GREEN' | string; alert_type: string; message: string; ts: string; status: string }
