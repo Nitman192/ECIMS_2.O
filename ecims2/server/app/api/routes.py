@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.db.database import get_db
 from app.licensing_core.policy_state import get_policy_state
 from app.licensing_core.state import get_license_state
+from app.models.user import UserRole
 from app.schemas.admin import (
     AgentRevokeRequest,
     AuditExportRequest,
@@ -41,7 +42,14 @@ from app.schemas.agent import (
 from app.schemas.alert import AlertOut
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.event import EventBatchRequest, EventBatchResponse
-from app.schemas.user import UserOut
+from app.schemas.user import (
+    AdminUserActiveUpdateRequest,
+    AdminUserCreateRequest,
+    AdminUserResetPasswordRequest,
+    AdminUserRoleUpdateRequest,
+    SelfPasswordResetRequest,
+    UserOut,
+)
 from app.security.auth import create_access_token
 from app.security.mtls import require_mtls_client_identity
 from app.services.agent_command_service import AgentCommandService
@@ -60,6 +68,19 @@ from app.utils.request_context import REQUEST_ID
 router = APIRouter()
 
 
+def _to_user_out(user: dict) -> UserOut:
+    return UserOut(
+        id=user["id"],
+        username=user["username"],
+        role=user["role"],
+        is_active=user["is_active"],
+        created_at=user["created_at"],
+        updated_at=user["updated_at"],
+        last_login_at=user["last_login_at"],
+        must_reset_password=bool(user["must_reset_password"]),
+    )
+
+
 @router.post("/auth/login", response_model=TokenResponse)
 def auth_login(payload: LoginRequest) -> TokenResponse:
     user = UserService.verify_credentials(payload.username, payload.password)
@@ -76,6 +97,7 @@ def auth_login(payload: LoginRequest) -> TokenResponse:
             )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    UserService.mark_login_success(user["id"])
     token = create_access_token(user_id=user["id"], username=user["username"], role=user["role"])
     with get_db() as conn:
         AuditService.log(
@@ -88,18 +110,30 @@ def auth_login(payload: LoginRequest) -> TokenResponse:
             message="Login successful",
             metadata={"username": user["username"], "role": user["role"]},
         )
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=token, must_reset_password=bool(user["must_reset_password"]))
 
 
 @router.get("/auth/me", response_model=UserOut)
 def auth_me(current_user: dict = Depends(get_current_user)) -> UserOut:
-    return UserOut(
-        id=current_user["id"],
-        username=current_user["username"],
-        role=current_user["role"],
-        is_active=current_user["is_active"],
-        created_at=current_user["created_at"],
-    )
+    return _to_user_out(current_user)
+
+
+@router.post("/auth/password/reset")
+def auth_password_reset(payload: SelfPasswordResetRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        UserService.change_own_password(
+            current_user["id"],
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if detail == "INVALID_CURRENT_PASSWORD":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid current password") from exc
+        if detail == "USER_NOT_FOUND":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+    return {"status": "ok"}
 
 
 @router.post("/agents/register", response_model=AgentRegisterResponse)
@@ -302,6 +336,162 @@ def run_retention(_: None = Depends(require_valid_license), __: dict = Depends(r
         settings.retention_days_alerts,
         settings.retention_days_audit,
     )
+
+
+@router.get("/admin/users", response_model=list[UserOut])
+def admin_list_users(
+    include_inactive: bool = Query(default=True),
+    admin: dict = Depends(require_admin),
+):
+    users = UserService.list_users(include_inactive=include_inactive)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="USER_LIST_VIEWED",
+            target_type="USER",
+            target_id="all",
+            message="Admin viewed users list",
+            metadata={"include_inactive": include_inactive, "count": len(users)},
+        )
+    return [_to_user_out(user) for user in users]
+
+
+@router.post("/admin/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def admin_create_user(payload: AdminUserCreateRequest, admin: dict = Depends(require_admin)):
+    try:
+        user_id = UserService.create_user(
+            payload.username,
+            payload.password,
+            payload.role,
+            actor_id=admin["id"],
+            is_active=payload.is_active,
+            must_reset_password=payload.must_reset_password,
+        )
+    except ValueError as exc:
+        if str(exc) == "USERNAME_ALREADY_EXISTS":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists") from exc
+        raise
+
+    created = UserService.get_by_id(user_id)
+    if not created:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="User creation failed")
+    return _to_user_out(created)
+
+
+@router.patch("/admin/users/{user_id}/role", response_model=UserOut)
+def admin_update_user_role(user_id: int, payload: AdminUserRoleUpdateRequest, admin: dict = Depends(require_admin)):
+    target = UserService.get_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if user_id == admin["id"] and payload.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove own admin role")
+
+    if not UserService.update_role(
+        user_id,
+        payload.role,
+        actor_id=admin["id"],
+        reason="Updated from admin console",
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    updated = UserService.get_by_id(user_id)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return _to_user_out(updated)
+
+
+@router.patch("/admin/users/{user_id}/active", response_model=UserOut)
+def admin_update_user_active_state(
+    user_id: int,
+    payload: AdminUserActiveUpdateRequest,
+    admin: dict = Depends(require_admin),
+):
+    target = UserService.get_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if user_id == admin["id"] and not payload.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot disable own account")
+
+    if (
+        target["role"] == UserRole.ADMIN.value
+        and target["is_active"]
+        and not payload.is_active
+        and UserService.count_active_admins(exclude_user_id=user_id) == 0
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot disable last active admin")
+
+    if not UserService.set_active(
+        user_id,
+        is_active=payload.is_active,
+        actor_id=admin["id"],
+        reason=payload.reason,
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    updated = UserService.get_by_id(user_id)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return _to_user_out(updated)
+
+
+@router.post("/admin/users/{user_id}/reset-password")
+def admin_reset_user_password(
+    user_id: int,
+    payload: AdminUserResetPasswordRequest,
+    admin: dict = Depends(require_admin),
+):
+    target = UserService.get_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if not UserService.reset_password(
+        user_id,
+        new_password=payload.new_password,
+        must_reset_password=payload.must_reset_password,
+        actor_id=admin["id"],
+        reason=payload.reason,
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    return {"status": "ok", "must_reset_password": payload.must_reset_password}
+
+
+@router.delete("/admin/users/{user_id}")
+def admin_delete_user(
+    user_id: int,
+    reason: str = Query(default="Deleted from admin console", min_length=1, max_length=512),
+    admin: dict = Depends(require_admin),
+):
+    target = UserService.get_by_id(user_id)
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete own account")
+
+    if (
+        target["role"] == UserRole.ADMIN.value
+        and target["is_active"]
+        and UserService.count_active_admins(exclude_user_id=user_id) == 0
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete last active admin")
+
+    try:
+        deleted = UserService.delete_user(user_id, actor_id=admin["id"], reason=reason)
+    except ValueError as exc:
+        if str(exc) == "USER_DELETE_CONFLICT":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="User cannot be deleted because related records exist",
+            ) from exc
+        raise
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return {"status": "deleted", "user_id": user_id}
 
 
 

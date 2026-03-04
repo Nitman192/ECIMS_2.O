@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import get_settings
@@ -79,7 +79,10 @@ def require_admin_auth(x_ecims_admin_token: str = Header(default="")) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid admin token")
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)) -> dict:
+def get_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> dict:
     if credentials is None or credentials.scheme.lower() != "bearer" or not credentials.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
 
@@ -92,6 +95,12 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(
     user = UserService.get_by_id(user_id)
     if not user or not user["is_active"]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User inactive or not found")
+
+    request_path = request.url.path.rstrip("/")
+    if user["must_reset_password"] and not (
+        request_path.endswith("/auth/me") or request_path.endswith("/auth/password/reset")
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Password reset required")
     return user
 
 

@@ -28,11 +28,26 @@ def _ensure_user_table(conn: sqlite3.Connection) -> None:
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL CHECK(role IN ('ADMIN', 'ANALYST', 'VIEWER')),
             is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
+            must_reset_password INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT,
+            last_login_at TEXT
         )
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_users_role_active ON users(role, is_active)")
+
+
+def _ensure_user_columns(conn: sqlite3.Connection) -> None:
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "must_reset_password" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN must_reset_password INTEGER NOT NULL DEFAULT 0")
+    if "updated_at" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN updated_at TEXT")
+        conn.execute("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL")
+    if "last_login_at" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
 
 
 def _ensure_agent_revocation_columns(conn: sqlite3.Connection) -> None:
@@ -303,6 +318,7 @@ def init_db() -> dict[str, int | bool]:
         _ensure_agent_revocation_columns(conn)
         _ensure_agent_device_columns(conn)
         _ensure_user_table(conn)
+        _ensure_user_columns(conn)
         _ensure_agent_device_status_columns(conn)
         migration = _run_schema_migrations(conn)
         return migration

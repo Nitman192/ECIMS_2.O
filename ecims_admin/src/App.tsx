@@ -1,5 +1,5 @@
 ﻿import { useEffect } from 'react';
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 import { bindAuthHandlers } from './api/client';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './layout/AppLayout';
@@ -22,6 +22,7 @@ import { PlaybooksPage } from './pages/ops/PlaybooksPage';
 import { QuarantinePage } from './pages/ops/QuarantinePage';
 import { RemoteActionsPage } from './pages/ops/RemoteActionsPage';
 import { SchedulesPage } from './pages/ops/SchedulesPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { SecurityCenterPage } from './pages/SecurityCenterPage';
 import { useAuth } from './store/AuthContext';
 
@@ -56,8 +57,16 @@ export const App = () => {
         <Route path="security" element={<SecurityCenterPage />} />
         <Route path="license" element={<LicensePanelPage />} />
         <Route path="audit" element={<AuditLogsPage />} />
+        <Route path="auth/reset-password" element={<ResetPasswordPage />} />
 
-        <Route path="admin">
+        <Route
+          path="admin"
+          element={
+            <ProtectedRoute allowedRoles={['ADMIN']}>
+              <Outlet />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<Navigate to="users" replace />} />
           <Route path="users" element={<AdminUsersPage />} />
           <Route path="roles" element={<AdminRolesPage />} />
@@ -82,4 +91,3 @@ export const App = () => {
     </Routes>
   );
 };
-

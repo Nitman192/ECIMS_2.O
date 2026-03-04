@@ -23,6 +23,7 @@ import {
 } from 'react-icons/fi';
 import { NavLink } from 'react-router-dom';
 import { MobileSidebarOverlay } from '../components/MobileSidebarOverlay';
+import { useAuth } from '../store/AuthContext';
 
 type SidebarProps = {
   collapsed: boolean;
@@ -36,6 +37,7 @@ type SidebarItem = {
   label: string;
   icon: IconType;
   end?: boolean;
+  requiresAdmin?: boolean;
 };
 
 type SidebarGroup = {
@@ -59,10 +61,10 @@ const adminOpsGroups: SidebarGroup[] = [
   {
     label: 'Admin / Ops · Core Admin',
     items: [
-      { to: '/admin/users', label: 'Users', icon: FiUserCheck },
-      { to: '/admin/roles', label: 'Roles Matrix', icon: FiClipboard },
-      { to: '/admin/features', label: 'Feature Flags', icon: FiFlag },
-      { to: '/admin/audit', label: 'Audit Explorer', icon: FiFileText },
+      { to: '/admin/users', label: 'Users', icon: FiUserCheck, requiresAdmin: true },
+      { to: '/admin/roles', label: 'Roles Matrix', icon: FiClipboard, requiresAdmin: true },
+      { to: '/admin/features', label: 'Feature Flags', icon: FiFlag, requiresAdmin: true },
+      { to: '/admin/audit', label: 'Audit Explorer', icon: FiFileText, requiresAdmin: true },
     ],
   },
   {
@@ -99,6 +101,9 @@ export const Sidebar = ({
   mobileOpen,
   onCloseMobile,
 }: SidebarProps) => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+
   return (
     <>
       <MobileSidebarOverlay open={mobileOpen} onClose={onCloseMobile} />
@@ -159,14 +164,17 @@ export const Sidebar = ({
               })}
             </div>
 
-            {adminOpsGroups.map((group) => (
+            {adminOpsGroups.map((group) => {
+              const visibleItems = group.items.filter((item) => !(item.requiresAdmin && !isAdmin));
+              if (!visibleItems.length) return null;
+              return (
               <div key={group.label} className="space-y-1.5">
                 {!collapsed && (
                   <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
                     {group.label}
                   </p>
                 )}
-                {group.items.map((item) => {
+                {visibleItems.map((item) => {
                   const Icon = item.icon;
                   return (
                     <NavLink
@@ -182,7 +190,8 @@ export const Sidebar = ({
                   );
                 })}
               </div>
-            ))}
+            );
+            })}
           </nav>
         </div>
       </aside>
