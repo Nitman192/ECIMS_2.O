@@ -448,5 +448,246 @@ export interface EvidenceExportResponse {
   event: EvidenceCustodyEvent;
 }
 
+export type PlaybookTriggerType = 'MANUAL' | 'ALERT_MATCH' | 'AGENT_HEALTH' | 'SCHEDULED';
+export type PlaybookApprovalMode = 'AUTO' | 'MANUAL' | 'TWO_PERSON';
+export type PlaybookStatus = 'ACTIVE' | 'DISABLED';
+export type PlaybookRiskLevel = 'LOW' | 'HIGH';
+export type PlaybookRunStatus =
+  | 'PENDING_APPROVAL'
+  | 'PARTIALLY_APPROVED'
+  | 'REJECTED'
+  | 'DISPATCHED'
+  | 'FAILED';
+
+export interface Playbook {
+  id: number;
+  playbook_id: string;
+  name: string;
+  description: string;
+  trigger_type: PlaybookTriggerType | string;
+  action: RemoteActionKind | string;
+  target_agent_ids: number[];
+  approval_mode: PlaybookApprovalMode | string;
+  risk_level: PlaybookRiskLevel | string;
+  reason_code: string;
+  status: PlaybookStatus | string;
+  metadata: Record<string, unknown>;
+  created_by_user_id: number;
+  updated_by_user_id: number;
+  created_by_username?: string | null;
+  updated_by_username?: string | null;
+  created_at: string;
+  updated_at: string;
+  last_run_at?: string | null;
+}
+
+export interface PlaybookListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: Playbook[];
+}
+
+export interface PlaybookCreatePayload {
+  name: string;
+  description: string;
+  trigger_type: PlaybookTriggerType;
+  action: RemoteActionKind;
+  target_agent_ids: number[];
+  approval_mode: PlaybookApprovalMode;
+  risk_level: PlaybookRiskLevel;
+  reason_code: string;
+  status: PlaybookStatus;
+  idempotency_key: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PlaybookCreateResponse {
+  item: Playbook;
+  created: boolean;
+}
+
+export interface PlaybookExecutePayload {
+  reason: string;
+}
+
+export interface PlaybookRun {
+  id: number;
+  run_id: string;
+  playbook_id: string;
+  playbook_name: string;
+  playbook_action: RemoteActionKind | string;
+  playbook_approval_mode: PlaybookApprovalMode | string;
+  requested_by_user_id: number;
+  requested_by_username?: string | null;
+  request_reason: string;
+  status: PlaybookRunStatus | string;
+  first_approver_user_id?: number | null;
+  first_approver_username?: string | null;
+  second_approver_user_id?: number | null;
+  second_approver_username?: string | null;
+  decision_reason?: string | null;
+  task_id?: number | null;
+  details: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  decided_at?: string | null;
+  dispatched_at?: string | null;
+}
+
+export interface PlaybookRunListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: PlaybookRun[];
+}
+
+export interface PlaybookRunDecisionPayload {
+  decision: 'APPROVE' | 'REJECT';
+  reason: string;
+}
+
+export type ChangeRequestType =
+  | 'POLICY'
+  | 'FEATURE_FLAG'
+  | 'PLAYBOOK'
+  | 'SCHEDULE'
+  | 'ENROLLMENT_POLICY'
+  | 'BREAK_GLASS_POLICY';
+export type ChangeRequestRisk = 'LOW' | 'HIGH' | 'CRITICAL';
+export type ChangeRequestStatus = 'PENDING' | 'PARTIALLY_APPROVED' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+export interface ChangeRequestItem {
+  id: number;
+  request_id: string;
+  change_type: ChangeRequestType | string;
+  target_ref: string;
+  summary: string;
+  proposed_changes: Record<string, unknown>;
+  risk_level: ChangeRequestRisk | string;
+  status: ChangeRequestStatus | string;
+  approvals_required: number;
+  reason: string;
+  metadata: Record<string, unknown>;
+  requested_by_user_id: number;
+  requested_by_username?: string | null;
+  first_approver_user_id?: number | null;
+  first_approver_username?: string | null;
+  second_approver_user_id?: number | null;
+  second_approver_username?: string | null;
+  decision_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+  decided_at?: string | null;
+}
+
+export interface ChangeRequestListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: ChangeRequestItem[];
+}
+
+export interface ChangeRequestCreatePayload {
+  change_type: ChangeRequestType;
+  target_ref: string;
+  summary: string;
+  proposed_changes?: Record<string, unknown>;
+  risk_level: ChangeRequestRisk;
+  reason: string;
+  two_person_rule: boolean;
+  idempotency_key: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ChangeRequestCreateResponse {
+  item: ChangeRequestItem;
+  created: boolean;
+}
+
+export interface ChangeRequestDecisionPayload {
+  decision: 'APPROVE' | 'REJECT';
+  reason: string;
+}
+
+export type BreakGlassScope = 'INCIDENT_RESPONSE' | 'SYSTEM_RECOVERY' | 'FORENSICS' | 'OTHER';
+export type BreakGlassStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+
+export interface BreakGlassSession {
+  id: number;
+  session_id: string;
+  requested_by_user_id: number;
+  requested_by_username?: string | null;
+  revoked_by_user_id?: number | null;
+  revoked_by_username?: string | null;
+  reason: string;
+  scope: BreakGlassScope | string;
+  status: BreakGlassStatus | string;
+  duration_minutes: number;
+  started_at: string;
+  expires_at: string;
+  ended_at?: string | null;
+  reauth_method: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BreakGlassSessionListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: BreakGlassSession[];
+}
+
+export interface BreakGlassSessionCreatePayload {
+  current_password: string;
+  reason: string;
+  scope: BreakGlassScope;
+  duration_minutes: number;
+  idempotency_key: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BreakGlassSessionCreateResponse {
+  item: BreakGlassSession;
+  created: boolean;
+  break_glass_token?: string | null;
+}
+
+export interface BreakGlassSessionRevokePayload {
+  reason: string;
+}
+
+export type StateBackupScope = 'CONFIG_ONLY' | 'FULL';
+
+export interface StateBackupMeta {
+  id: number;
+  backup_id: string;
+  scope: StateBackupScope | string;
+  include_sensitive: boolean;
+  row_count: number;
+  bundle_hash: string;
+  created_by_user_id: number;
+  created_by_username?: string | null;
+  created_at: string;
+}
+
+export interface StateBackup extends StateBackupMeta {
+  bundle: Record<string, unknown>;
+}
+
+export interface StateBackupListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: StateBackupMeta[];
+}
+
+export interface StateBackupCreatePayload {
+  scope: StateBackupScope;
+  include_sensitive: boolean;
+}
+
 export interface Agent { id: number; hostname: string; name: string; last_seen: string; status: string; device_mode_override?: string }
 export interface Alert { id: number; severity: 'RED' | 'YELLOW' | 'GREEN' | string; alert_type: string; message: string; ts: string; status: string }

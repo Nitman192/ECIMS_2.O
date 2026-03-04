@@ -516,6 +516,144 @@ def init_db() -> dict[str, int | bool]:
 
             CREATE INDEX IF NOT EXISTS idx_evidence_custody_events_evidence_seq ON evidence_custody_events(evidence_id, sequence_no);
             CREATE INDEX IF NOT EXISTS idx_evidence_custody_events_ts ON evidence_custody_events(event_ts);
+            CREATE TABLE IF NOT EXISTS playbooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playbook_id TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                trigger_type TEXT NOT NULL CHECK(trigger_type IN ('MANUAL', 'ALERT_MATCH', 'AGENT_HEALTH', 'SCHEDULED')),
+                action TEXT NOT NULL CHECK(action IN ('shutdown', 'restart', 'lockdown', 'policy_push')),
+                target_agent_ids_json TEXT NOT NULL,
+                approval_mode TEXT NOT NULL CHECK(approval_mode IN ('AUTO', 'MANUAL', 'TWO_PERSON')),
+                risk_level TEXT NOT NULL CHECK(risk_level IN ('LOW', 'HIGH')),
+                reason_code TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('ACTIVE', 'DISABLED')),
+                idempotency_key TEXT NOT NULL UNIQUE,
+                request_hash TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_by_user_id INTEGER NOT NULL,
+                updated_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_run_at TEXT,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (updated_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_playbooks_status_updated ON playbooks(status, updated_at);
+            CREATE INDEX IF NOT EXISTS idx_playbooks_approval_status ON playbooks(approval_mode, status);
+            CREATE TABLE IF NOT EXISTS playbook_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL UNIQUE,
+                playbook_id INTEGER NOT NULL,
+                requested_by_user_id INTEGER NOT NULL,
+                request_reason TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('PENDING_APPROVAL', 'PARTIALLY_APPROVED', 'REJECTED', 'DISPATCHED', 'FAILED')),
+                first_approver_user_id INTEGER,
+                second_approver_user_id INTEGER,
+                decision_reason TEXT,
+                task_id INTEGER,
+                details_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                decided_at TEXT,
+                dispatched_at TEXT,
+                FOREIGN KEY (playbook_id) REFERENCES playbooks(id) ON DELETE CASCADE,
+                FOREIGN KEY (requested_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (first_approver_user_id) REFERENCES users(id),
+                FOREIGN KEY (second_approver_user_id) REFERENCES users(id),
+                FOREIGN KEY (task_id) REFERENCES agent_tasks(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_playbook_runs_playbook_created ON playbook_runs(playbook_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_playbook_runs_status_created ON playbook_runs(status, created_at);
+            CREATE TABLE IF NOT EXISTS change_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL UNIQUE,
+                change_type TEXT NOT NULL CHECK(change_type IN ('POLICY', 'FEATURE_FLAG', 'PLAYBOOK', 'SCHEDULE', 'ENROLLMENT_POLICY', 'BREAK_GLASS_POLICY')),
+                target_ref TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                proposed_changes_json TEXT NOT NULL DEFAULT '{}',
+                risk_level TEXT NOT NULL CHECK(risk_level IN ('LOW', 'HIGH', 'CRITICAL')),
+                status TEXT NOT NULL CHECK(status IN ('PENDING', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED', 'CANCELLED')),
+                approvals_required INTEGER NOT NULL CHECK(approvals_required IN (1, 2)),
+                reason TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                idempotency_key TEXT NOT NULL UNIQUE,
+                request_hash TEXT NOT NULL,
+                requested_by_user_id INTEGER NOT NULL,
+                first_approver_user_id INTEGER,
+                second_approver_user_id INTEGER,
+                decision_reason TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                decided_at TEXT,
+                FOREIGN KEY (requested_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (first_approver_user_id) REFERENCES users(id),
+                FOREIGN KEY (second_approver_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_change_requests_status_created ON change_requests(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_change_requests_risk_status ON change_requests(risk_level, status);
+            CREATE TABLE IF NOT EXISTS break_glass_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL UNIQUE,
+                requested_by_user_id INTEGER NOT NULL,
+                revoked_by_user_id INTEGER,
+                reason TEXT NOT NULL,
+                scope TEXT NOT NULL CHECK(scope IN ('INCIDENT_RESPONSE', 'SYSTEM_RECOVERY', 'FORENSICS', 'OTHER')),
+                status TEXT NOT NULL CHECK(status IN ('ACTIVE', 'EXPIRED', 'REVOKED')),
+                duration_minutes INTEGER NOT NULL,
+                started_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                ended_at TEXT,
+                reauth_method TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                request_hash TEXT NOT NULL,
+                session_secret_hash TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (requested_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (revoked_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_break_glass_sessions_status_expires ON break_glass_sessions(status, expires_at);
+            CREATE INDEX IF NOT EXISTS idx_break_glass_sessions_user_created ON break_glass_sessions(requested_by_user_id, created_at);
+            CREATE TABLE IF NOT EXISTS state_backups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                backup_id TEXT NOT NULL UNIQUE,
+                scope TEXT NOT NULL CHECK(scope IN ('CONFIG_ONLY', 'FULL')),
+                include_sensitive INTEGER NOT NULL DEFAULT 0,
+                row_count INTEGER NOT NULL DEFAULT 0,
+                bundle_hash TEXT NOT NULL,
+                bundle_json TEXT NOT NULL,
+                created_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_state_backups_scope_created ON state_backups(scope, created_at);
+            CREATE TABLE IF NOT EXISTS state_restore_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                restore_id TEXT NOT NULL UNIQUE,
+                backup_id TEXT NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('APPLIED', 'FAILED')),
+                reason TEXT NOT NULL,
+                allow_deletes INTEGER NOT NULL DEFAULT 0,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                request_hash TEXT NOT NULL,
+                selected_tables_json TEXT NOT NULL DEFAULT '[]',
+                result_json TEXT NOT NULL DEFAULT '{}',
+                created_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                applied_at TEXT,
+                FOREIGN KEY (backup_id) REFERENCES state_backups(backup_id) ON DELETE CASCADE,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_state_restore_jobs_backup_created ON state_restore_jobs(backup_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_state_restore_jobs_status_created ON state_restore_jobs(status, created_at);
             CREATE TABLE IF NOT EXISTS ai_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,

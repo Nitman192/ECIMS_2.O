@@ -162,3 +162,72 @@ class EvidenceCustodyEventCreateRequest(BaseModel):
 
 class EvidenceExportRequest(BaseModel):
     reason: str = Field(min_length=5, max_length=1024)
+
+
+class PlaybookCreateRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=128)
+    description: str = Field(default="", max_length=1024)
+    trigger_type: str = Field(pattern=r"^(MANUAL|ALERT_MATCH|AGENT_HEALTH|SCHEDULED)$")
+    action: str = Field(pattern=r"^(shutdown|restart|lockdown|policy_push)$")
+    target_agent_ids: list[int] = Field(min_length=1, max_length=100)
+    approval_mode: str = Field(pattern=r"^(AUTO|MANUAL|TWO_PERSON)$")
+    risk_level: str = Field(default="LOW", pattern=r"^(LOW|HIGH)$")
+    reason_code: str = Field(min_length=2, max_length=64, pattern=r"^[A-Z0-9_-]+$")
+    status: str = Field(default="ACTIVE", pattern=r"^(ACTIVE|DISABLED)$")
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    metadata: dict[str, Any] | None = None
+
+
+class PlaybookExecuteRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=1024)
+
+
+class PlaybookRunDecisionRequest(BaseModel):
+    decision: str = Field(pattern=r"^(APPROVE|REJECT)$")
+    reason: str = Field(min_length=5, max_length=1024)
+
+
+class ChangeRequestCreateRequest(BaseModel):
+    change_type: str = Field(pattern=r"^(POLICY|FEATURE_FLAG|PLAYBOOK|SCHEDULE|ENROLLMENT_POLICY|BREAK_GLASS_POLICY)$")
+    target_ref: str = Field(min_length=2, max_length=255)
+    summary: str = Field(min_length=5, max_length=512)
+    proposed_changes: dict[str, Any] | None = None
+    risk_level: str = Field(pattern=r"^(LOW|HIGH|CRITICAL)$")
+    reason: str = Field(min_length=5, max_length=1024)
+    two_person_rule: bool = False
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    metadata: dict[str, Any] | None = None
+
+
+class ChangeRequestDecisionRequest(BaseModel):
+    decision: str = Field(pattern=r"^(APPROVE|REJECT)$")
+    reason: str = Field(min_length=5, max_length=1024)
+
+
+class BreakGlassSessionCreateRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    reason: str = Field(min_length=5, max_length=1024)
+    scope: str = Field(pattern=r"^(INCIDENT_RESPONSE|SYSTEM_RECOVERY|FORENSICS|OTHER)$")
+    duration_minutes: int = Field(ge=5, le=240)
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    metadata: dict[str, Any] | None = None
+
+
+class BreakGlassSessionRevokeRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=1024)
+
+
+class StateBackupCreateRequest(BaseModel):
+    scope: str = Field(pattern=r"^(CONFIG_ONLY|FULL)$")
+    include_sensitive: bool = False
+
+
+class StateBackupRestorePreviewRequest(BaseModel):
+    tables: list[str] | None = Field(default=None, max_length=50)
+    allow_deletes: bool = False
+
+
+class StateBackupRestoreApplyRequest(StateBackupRestorePreviewRequest):
+    reason: str = Field(min_length=5, max_length=1024)
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    confirm_apply: bool

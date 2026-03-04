@@ -23,6 +23,10 @@ from app.schemas.admin import (
     AgentRevokeRequest,
     AuditExportRequest,
     BaselineApproveRequest,
+    BreakGlassSessionCreateRequest,
+    BreakGlassSessionRevokeRequest,
+    ChangeRequestCreateRequest,
+    ChangeRequestDecisionRequest,
     EvidenceCustodyEventCreateRequest,
     EvidenceExportRequest,
     EvidenceObjectCreateRequest,
@@ -38,7 +42,11 @@ from app.schemas.admin import (
     MaintenanceSchedulePreviewRequest,
     MaintenanceScheduleStateUpdateRequest,
     OfflineEnrollmentKitImportRequest,
+    PlaybookCreateRequest,
+    PlaybookExecuteRequest,
+    PlaybookRunDecisionRequest,
     RemoteActionTaskCreateRequest,
+    StateBackupCreateRequest,
     DeviceUnblockApproveRequest,
     DeviceUnblockRequestCreate,
 )
@@ -68,6 +76,8 @@ from app.security.mtls import require_mtls_client_identity
 from app.services.agent_command_service import AgentCommandService
 from app.services.agent_service import AgentService
 from app.services.alert_service import AlertService
+from app.services.break_glass_service import BreakGlassService
+from app.services.change_control_service import ChangeControlService
 from app.services.audit_service import AuditService
 from app.services.device_allow_token_service import DeviceAllowTokenService
 from app.services.device_control_state_service import DeviceControlStateService
@@ -77,8 +87,10 @@ from app.services.evidence_vault_service import EvidenceVaultService
 from app.services.event_service import EventService
 from app.services.feature_flag_service import FeatureFlagService
 from app.services.maintenance_schedule_service import MaintenanceScheduleService
+from app.services.playbook_service import PlaybookService
 from app.services.remote_action_task_service import RemoteActionTaskService
 from app.services.retention_service import RetentionService
+from app.services.state_backup_service import StateBackupService
 from app.services.user_service import UserService
 from app.utils.time import utcnow
 from app.utils.request_context import REQUEST_ID
@@ -269,6 +281,127 @@ def _raise_evidence_error(exc: ValueError) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid manifest payload") from exc
     if code == "INVALID_REASON":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reason must be at least 5 characters") from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+
+
+def _raise_playbook_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_NAME":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid playbook name") from exc
+    if code == "INVALID_TRIGGER":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid playbook trigger type") from exc
+    if code == "INVALID_ACTION":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action") from exc
+    if code == "INVALID_APPROVAL_MODE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid approval mode") from exc
+    if code == "INVALID_RISK_LEVEL":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid risk level") from exc
+    if code == "INVALID_REASON_CODE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reason code") from exc
+    if code == "INVALID_STATUS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid playbook status") from exc
+    if code == "INVALID_RUN_STATUS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid playbook run status") from exc
+    if code == "INVALID_REASON":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reason must be at least 5 characters") from exc
+    if code == "INVALID_DECISION":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid decision") from exc
+    if code == "INVALID_IDEMPOTENCY_KEY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid idempotency key") from exc
+    if code == "INVALID_AGENT_IDS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one valid agent ID is required") from exc
+    if code == "BATCH_TOO_LARGE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target agent list exceeds safe limit (100)") from exc
+    if code == "IDEMPOTENCY_KEY_CONFLICT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key already used with a different payload",
+        ) from exc
+    if code == "PLAYBOOK_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook not found") from exc
+    if code == "PLAYBOOK_DISABLED":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Playbook is disabled") from exc
+    if code == "RUN_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playbook run not found") from exc
+    if code == "RUN_NOT_PENDING":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Playbook run is not pending decision") from exc
+    if code == "APPROVER_MUST_BE_DISTINCT":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approver must be different from requester/first approver") from exc
+    if code.startswith("MISSING_AGENTS:"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent not found: {code.split(':', 1)[1]}") from exc
+    if code.startswith("REVOKED_AGENTS:"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Agent revoked: {code.split(':', 1)[1]}") from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+
+
+def _raise_change_control_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_CHANGE_TYPE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid change type") from exc
+    if code == "INVALID_TARGET_REF":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid target reference") from exc
+    if code == "INVALID_SUMMARY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid change summary") from exc
+    if code == "INVALID_RISK_LEVEL":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid risk level") from exc
+    if code == "INVALID_STATUS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request status") from exc
+    if code == "INVALID_REASON":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reason must be at least 5 characters") from exc
+    if code == "INVALID_DECISION":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid decision") from exc
+    if code == "INVALID_IDEMPOTENCY_KEY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid idempotency key") from exc
+    if code == "INVALID_PROPOSED_CHANGES":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid proposed changes payload") from exc
+    if code == "INVALID_METADATA":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid metadata payload") from exc
+    if code == "IDEMPOTENCY_KEY_CONFLICT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key already used with a different payload",
+        ) from exc
+    if code == "REQUEST_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Change request not found") from exc
+    if code == "REQUEST_NOT_PENDING":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Change request is not pending decision") from exc
+    if code == "APPROVER_MUST_BE_DISTINCT":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approver must be different from requester/first approver") from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+
+
+def _raise_break_glass_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_SCOPE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid break-glass scope") from exc
+    if code == "INVALID_STATUS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid break-glass status") from exc
+    if code == "INVALID_REASON":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reason must be at least 5 characters") from exc
+    if code == "INVALID_DURATION":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Duration must be between 5 and 240 minutes") from exc
+    if code == "INVALID_IDEMPOTENCY_KEY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid idempotency key") from exc
+    if code == "INVALID_METADATA":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid metadata payload") from exc
+    if code == "INVALID_REAUTH":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Re-authentication failed") from exc
+    if code == "IDEMPOTENCY_KEY_CONFLICT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key already used with a different payload",
+        ) from exc
+    if code == "SESSION_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Break-glass session not found") from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+
+
+def _raise_backup_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_SCOPE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid backup scope") from exc
+    if code == "BACKUP_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup snapshot not found") from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
 
 
@@ -1282,6 +1415,337 @@ def admin_export_evidence_vault_bundle(
     except ValueError as exc:
         _raise_evidence_error(exc)
     return result
+
+
+@router.get("/admin/ops/playbooks")
+def admin_list_playbooks(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    status_filter: str | None = Query(default=None, alias="status"),
+    approval_mode: str | None = Query(default=None, alias="approval_mode"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = PlaybookService.list_playbooks(
+            page=page,
+            page_size=page_size,
+            status_filter=status_filter,
+            approval_filter=approval_mode,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_playbook_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="PLAYBOOK_LIST_VIEWED",
+            target_type="PLAYBOOK",
+            target_id="all",
+            message="Playbook list viewed",
+            metadata={"page": page, "page_size": page_size, "status": status_filter, "approval_mode": approval_mode, "query": q},
+        )
+    return payload
+
+
+@router.post("/admin/ops/playbooks", status_code=status.HTTP_201_CREATED)
+def admin_create_playbook(payload: PlaybookCreateRequest, response: Response, admin: dict = Depends(require_admin)):
+    try:
+        item, created = PlaybookService.create_playbook(
+            name=payload.name,
+            description=payload.description,
+            trigger_type=payload.trigger_type,
+            action=payload.action,
+            target_agent_ids=payload.target_agent_ids,
+            approval_mode=payload.approval_mode,
+            risk_level=payload.risk_level,
+            reason_code=payload.reason_code,
+            status_value=payload.status,
+            idempotency_key=payload.idempotency_key,
+            metadata=payload.metadata,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_playbook_error(exc)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {"item": item, "created": created}
+
+
+@router.get("/admin/ops/playbooks/runs")
+def admin_list_playbook_runs(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    playbook_id: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = PlaybookService.list_runs(
+            page=page,
+            page_size=page_size,
+            playbook_id=playbook_id,
+            status_filter=status_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_playbook_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="PLAYBOOK_RUN_LIST_VIEWED",
+            target_type="PLAYBOOK_RUN",
+            target_id="all",
+            message="Playbook run list viewed",
+            metadata={"page": page, "page_size": page_size, "playbook_id": playbook_id, "status": status_filter, "query": q},
+        )
+    return payload
+
+
+@router.post("/admin/ops/playbooks/{playbook_id}/execute")
+def admin_execute_playbook(playbook_id: str, payload: PlaybookExecuteRequest, admin: dict = Depends(require_admin)):
+    try:
+        run = PlaybookService.execute_playbook(
+            playbook_id=playbook_id,
+            reason=payload.reason,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_playbook_error(exc)
+    return run
+
+
+@router.post("/admin/ops/playbooks/runs/{run_id}/decision")
+def admin_decide_playbook_run(run_id: str, payload: PlaybookRunDecisionRequest, admin: dict = Depends(require_admin)):
+    try:
+        run = PlaybookService.decide_run(
+            run_id=run_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_playbook_error(exc)
+    return run
+
+
+@router.get("/admin/ops/change-control/requests")
+def admin_list_change_requests(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    status_filter: str | None = Query(default=None, alias="status"),
+    risk_filter: str | None = Query(default=None, alias="risk"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = ChangeControlService.list_requests(
+            page=page,
+            page_size=page_size,
+            status_filter=status_filter,
+            risk_filter=risk_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_change_control_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="CHANGE_REQUEST_LIST_VIEWED",
+            target_type="CHANGE_REQUEST",
+            target_id="all",
+            message="Change request list viewed",
+            metadata={"page": page, "page_size": page_size, "status": status_filter, "risk": risk_filter, "query": q},
+        )
+    return payload
+
+
+@router.post("/admin/ops/change-control/requests", status_code=status.HTTP_201_CREATED)
+def admin_create_change_request(
+    payload: ChangeRequestCreateRequest,
+    response: Response,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item, created = ChangeControlService.create_request(
+            change_type=payload.change_type,
+            target_ref=payload.target_ref,
+            summary=payload.summary,
+            proposed_changes=payload.proposed_changes,
+            risk_level=payload.risk_level,
+            reason=payload.reason,
+            two_person_rule=payload.two_person_rule,
+            idempotency_key=payload.idempotency_key,
+            metadata=payload.metadata,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_change_control_error(exc)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {"item": item, "created": created}
+
+
+@router.post("/admin/ops/change-control/requests/{request_id}/decision")
+def admin_decide_change_request(
+    request_id: str,
+    payload: ChangeRequestDecisionRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item = ChangeControlService.decide_request(
+            request_id=request_id,
+            decision=payload.decision,
+            reason=payload.reason,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_change_control_error(exc)
+    return item
+
+
+@router.get("/admin/ops/break-glass/sessions")
+def admin_list_break_glass_sessions(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    status_filter: str | None = Query(default=None, alias="status"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = BreakGlassService.list_sessions(
+            page=page,
+            page_size=page_size,
+            status_filter=status_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_break_glass_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="BREAK_GLASS_LIST_VIEWED",
+            target_type="BREAK_GLASS_SESSION",
+            target_id="all",
+            message="Break-glass session list viewed",
+            metadata={"page": page, "page_size": page_size, "status": status_filter, "query": q},
+        )
+    return payload
+
+
+@router.post("/admin/ops/break-glass/sessions", status_code=status.HTTP_201_CREATED)
+def admin_create_break_glass_session(
+    payload: BreakGlassSessionCreateRequest,
+    response: Response,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item, created, session_token = BreakGlassService.create_session(
+            actor_id=admin["id"],
+            actor_username=admin["username"],
+            current_password=payload.current_password,
+            reason=payload.reason,
+            scope=payload.scope,
+            duration_minutes=payload.duration_minutes,
+            idempotency_key=payload.idempotency_key,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        _raise_break_glass_error(exc)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {"item": item, "created": created, "break_glass_token": session_token}
+
+
+@router.post("/admin/ops/break-glass/sessions/{session_id}/revoke")
+def admin_revoke_break_glass_session(
+    session_id: str,
+    payload: BreakGlassSessionRevokeRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item = BreakGlassService.revoke_session(
+            session_id=session_id,
+            reason=payload.reason,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_break_glass_error(exc)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Break-glass session not found")
+    return {"status": "ok", "item": item}
+
+
+@router.get("/admin/ops/state-backups")
+def admin_list_state_backups(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    scope_filter: str | None = Query(default=None, alias="scope"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = StateBackupService.list_backups(
+            page=page,
+            page_size=page_size,
+            scope_filter=scope_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_backup_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="STATE_BACKUP_LIST_VIEWED",
+            target_type="STATE_BACKUP",
+            target_id="all",
+            message="State backup list viewed",
+            metadata={"page": page, "page_size": page_size, "scope": scope_filter, "query": q},
+        )
+    return payload
+
+
+@router.post("/admin/ops/state-backups", status_code=status.HTTP_201_CREATED)
+def admin_create_state_backup(payload: StateBackupCreateRequest, admin: dict = Depends(require_admin)):
+    try:
+        item = StateBackupService.create_backup(
+            scope=payload.scope,
+            include_sensitive=payload.include_sensitive,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_backup_error(exc)
+    return item
+
+
+@router.get("/admin/ops/state-backups/{backup_id}")
+def admin_get_state_backup(backup_id: str, admin: dict = Depends(require_admin)):
+    item = StateBackupService.get_backup(backup_id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup snapshot not found")
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="STATE_BACKUP_VIEWED",
+            target_type="STATE_BACKUP",
+            target_id=backup_id,
+            message="State backup viewed",
+            metadata={"scope": item["scope"], "row_count": item["row_count"]},
+        )
+    return item
 
 
 

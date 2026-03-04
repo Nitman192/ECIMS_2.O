@@ -6,6 +6,16 @@ import type {
   AdminUserRolePayload,
   Alert,
   Agent,
+  BreakGlassSession,
+  BreakGlassSessionCreatePayload,
+  BreakGlassSessionCreateResponse,
+  BreakGlassSessionListResponse,
+  BreakGlassSessionRevokePayload,
+  ChangeRequestCreatePayload,
+  ChangeRequestCreateResponse,
+  ChangeRequestDecisionPayload,
+  ChangeRequestItem,
+  ChangeRequestListResponse,
   FeatureFlag,
   FeatureFlagCreatePayload,
   FeatureFlagListResponse,
@@ -35,10 +45,21 @@ import type {
   MaintenanceScheduleStatePayload,
   OfflineEnrollmentKitImportPayload,
   OfflineEnrollmentKitImportResponse,
+  Playbook,
+  PlaybookCreatePayload,
+  PlaybookCreateResponse,
+  PlaybookExecutePayload,
+  PlaybookListResponse,
+  PlaybookRun,
+  PlaybookRunDecisionPayload,
+  PlaybookRunListResponse,
   RemoteActionTaskCreatePayload,
   RemoteActionTaskCreateResponse,
   RemoteActionTaskListResponse,
   RemoteActionTaskTargetListResponse,
+  StateBackup,
+  StateBackupCreatePayload,
+  StateBackupListResponse,
   User,
 } from '../types';
 
@@ -112,4 +133,32 @@ export const CoreApi = {
     api.post<{ item: EvidenceObject; event: EvidenceCustodyEvent }>(`/admin/ops/evidence-vault/${evidenceId}/custody`, payload),
   exportEvidenceBundle: (evidenceId: string, payload: EvidenceExportPayload) =>
     api.post<EvidenceExportResponse>(`/admin/ops/evidence-vault/${evidenceId}/export`, payload),
+  listPlaybooks: (params?: { page?: number; page_size?: number; status?: string; approval_mode?: string; q?: string }) =>
+    api.get<PlaybookListResponse>('/admin/ops/playbooks', { params }),
+  createPlaybook: (payload: PlaybookCreatePayload) =>
+    api.post<PlaybookCreateResponse>('/admin/ops/playbooks', payload),
+  listPlaybookRuns: (params?: { page?: number; page_size?: number; playbook_id?: string; status?: string; q?: string }) =>
+    api.get<PlaybookRunListResponse>('/admin/ops/playbooks/runs', { params }),
+  executePlaybook: (playbookId: string, payload: PlaybookExecutePayload) =>
+    api.post<PlaybookRun>(`/admin/ops/playbooks/${playbookId}/execute`, payload),
+  decidePlaybookRun: (runId: string, payload: PlaybookRunDecisionPayload) =>
+    api.post<PlaybookRun>(`/admin/ops/playbooks/runs/${runId}/decision`, payload),
+  listChangeRequests: (params?: { page?: number; page_size?: number; status?: string; risk?: string; q?: string }) =>
+    api.get<ChangeRequestListResponse>('/admin/ops/change-control/requests', { params }),
+  createChangeRequest: (payload: ChangeRequestCreatePayload) =>
+    api.post<ChangeRequestCreateResponse>('/admin/ops/change-control/requests', payload),
+  decideChangeRequest: (requestId: string, payload: ChangeRequestDecisionPayload) =>
+    api.post<ChangeRequestItem>(`/admin/ops/change-control/requests/${requestId}/decision`, payload),
+  listBreakGlassSessions: (params?: { page?: number; page_size?: number; status?: string; q?: string }) =>
+    api.get<BreakGlassSessionListResponse>('/admin/ops/break-glass/sessions', { params }),
+  createBreakGlassSession: (payload: BreakGlassSessionCreatePayload) =>
+    api.post<BreakGlassSessionCreateResponse>('/admin/ops/break-glass/sessions', payload),
+  revokeBreakGlassSession: (sessionId: string, payload: BreakGlassSessionRevokePayload) =>
+    api.post<{ status: string; item: BreakGlassSession }>(`/admin/ops/break-glass/sessions/${sessionId}/revoke`, payload),
+  listStateBackups: (params?: { page?: number; page_size?: number; scope?: string; q?: string }) =>
+    api.get<StateBackupListResponse>('/admin/ops/state-backups', { params }),
+  createStateBackup: (payload: StateBackupCreatePayload) =>
+    api.post<StateBackup>('/admin/ops/state-backups', payload),
+  getStateBackup: (backupId: string) =>
+    api.get<StateBackup>(`/admin/ops/state-backups/${backupId}`),
 };
