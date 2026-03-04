@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 
 from app.ai.service import AIService
 from app.api.deps import (
@@ -27,6 +27,9 @@ from app.schemas.admin import (
     DeviceAllowTokenRevokeRequest,
     DeviceKillSwitchRequest,
     DeviceSetAgentModeRequest,
+    FeatureFlagCreateRequest,
+    FeatureFlagSetStateRequest,
+    RemoteActionTaskCreateRequest,
     DeviceUnblockApproveRequest,
     DeviceUnblockRequestCreate,
 )
@@ -60,6 +63,8 @@ from app.services.device_allow_token_service import DeviceAllowTokenService
 from app.services.device_control_state_service import DeviceControlStateService
 from app.services.device_policy_service import DevicePolicyService
 from app.services.event_service import EventService
+from app.services.feature_flag_service import FeatureFlagService
+from app.services.remote_action_task_service import RemoteActionTaskService
 from app.services.retention_service import RetentionService
 from app.services.user_service import UserService
 from app.utils.time import utcnow
@@ -79,6 +84,65 @@ def _to_user_out(user: dict) -> UserOut:
         last_login_at=user["last_login_at"],
         must_reset_password=bool(user["must_reset_password"]),
     )
+
+
+def _raise_feature_flag_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_SCOPE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid scope") from exc
+    if code == "INVALID_SCOPE_TARGET":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Scope target is required") from exc
+    if code == "INVALID_RISK_LEVEL":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid risk level") from exc
+    if code == "INVALID_REASON_CODE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reason code") from exc
+    if code == "FLAG_KEY_RESERVED":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Flag key is reserved") from exc
+    if code == "FLAG_ALREADY_EXISTS":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Flag already exists for scope") from exc
+    if code == "RISK_CONFIRMATION_REQUIRED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Risky toggle requires explicit confirmation",
+        ) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+
+
+def _raise_remote_action_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_ACTION":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action") from exc
+    if code == "INVALID_STATUS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status") from exc
+    if code == "INVALID_REASON_CODE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reason code") from exc
+    if code == "HIGH_RISK_CONFIRMATION_REQUIRED":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="High-risk action requires explicit confirmation",
+        ) from exc
+    if code == "BATCH_TOO_LARGE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Batch size exceeds safe limit (100)") from exc
+    if code == "INVALID_AGENT_IDS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one valid agent ID is required") from exc
+    if code == "INVALID_IDEMPOTENCY_KEY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid idempotency key") from exc
+    if code == "METADATA_TOO_LARGE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Metadata payload too large") from exc
+    if code == "IDEMPOTENCY_KEY_CONFLICT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key already used with a different payload",
+        ) from exc
+    if code.startswith("MISSING_AGENTS:"):
+        missing = code.split(":", 1)[1]
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent not found: {missing}") from exc
+    if code.startswith("REVOKED_AGENTS:"):
+        revoked = code.split(":", 1)[1]
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Agent revoked: {revoked}") from exc
+    if code == "TASK_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found") from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
 
 
 @router.post("/auth/login", response_model=TokenResponse)
@@ -494,6 +558,157 @@ def admin_delete_user(
     return {"status": "deleted", "user_id": user_id}
 
 
+@router.get("/admin/features")
+def admin_list_feature_flags(
+    q: str | None = Query(default=None, max_length=128),
+    scope: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        items = FeatureFlagService.list_flags(query=q, scope=scope, state=state)
+    except ValueError as exc:
+        _raise_feature_flag_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="FEATURE_FLAG_LIST_VIEWED",
+            target_type="FEATURE_FLAG",
+            target_id="all",
+            message="Admin viewed feature flags",
+            metadata={"count": len(items), "query": q, "scope": scope, "state": state},
+        )
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/admin/features", status_code=status.HTTP_201_CREATED)
+def admin_create_feature_flag(payload: FeatureFlagCreateRequest, admin: dict = Depends(require_admin)):
+    try:
+        created = FeatureFlagService.create_flag(
+            key=payload.key,
+            description=payload.description,
+            scope=payload.scope,
+            scope_target=payload.scope_target,
+            is_enabled=payload.is_enabled,
+            risk_level=payload.risk_level,
+            reason_code=payload.reason_code,
+            reason=payload.reason,
+            confirm_risky=payload.confirm_risky,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_feature_flag_error(exc)
+    return created
+
+
+@router.put("/admin/features/{flag_id}/state")
+def admin_set_feature_flag_state(
+    flag_id: int,
+    payload: FeatureFlagSetStateRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        updated = FeatureFlagService.set_flag_state(
+            flag_id=flag_id,
+            enabled=payload.enabled,
+            reason_code=payload.reason_code,
+            reason=payload.reason,
+            confirm_risky=payload.confirm_risky,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_feature_flag_error(exc)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feature flag not found")
+    return updated
+
+
+@router.get("/admin/ops/remote-actions/tasks")
+def admin_list_remote_action_tasks(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    action: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = RemoteActionTaskService.list_tasks(
+            page=page,
+            page_size=page_size,
+            action=action,
+            status=status_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_remote_action_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="REMOTE_ACTION_TASK_LIST_VIEWED",
+            target_type="AGENT_TASK",
+            target_id="all",
+            message="Admin viewed remote action tasks",
+            metadata={
+                "page": page,
+                "page_size": page_size,
+                "action": action,
+                "status": status_filter,
+                "query": q,
+                "count": len(payload["items"]),
+            },
+        )
+    return payload
+
+
+@router.get("/admin/ops/remote-actions/tasks/{task_id}/targets")
+def admin_list_remote_action_task_targets(task_id: int, admin: dict = Depends(require_admin)):
+    task = RemoteActionTaskService.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    items = RemoteActionTaskService.list_task_targets(task_id)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="REMOTE_ACTION_TASK_TARGETS_VIEWED",
+            target_type="AGENT_TASK",
+            target_id=task_id,
+            message="Admin viewed remote action task targets",
+            metadata={"count": len(items)},
+        )
+    return {"task": task, "items": items, "total": len(items)}
+
+
+@router.post("/admin/ops/remote-actions/tasks", status_code=status.HTTP_201_CREATED)
+def admin_create_remote_action_task(
+    payload: RemoteActionTaskCreateRequest,
+    response: Response,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        task, created = RemoteActionTaskService.create_task(
+            action=payload.action,
+            agent_ids=payload.agent_ids,
+            idempotency_key=payload.idempotency_key,
+            reason_code=payload.reason_code,
+            reason=payload.reason,
+            confirm_high_risk=payload.confirm_high_risk,
+            metadata=payload.metadata,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_remote_action_error(exc)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {"item": task, "created": created}
+
+
 
 
 @router.post("/admin/device/unblock-request")
@@ -671,23 +886,14 @@ def revoke_device_allow_token(payload: DeviceAllowTokenRevokeRequest, admin: dic
 
 @router.post("/admin/device/kill-switch")
 def set_device_kill_switch(payload: DeviceKillSwitchRequest, admin: dict = Depends(require_admin)):
-    DeviceControlStateService.set_kill_switch(payload.enabled)
-    with get_db() as conn:
-        AuditService.log(
-            conn,
-            actor_type="ADMIN",
+    try:
+        FeatureFlagService.set_builtin_kill_switch(
+            enabled=payload.enabled,
+            reason=payload.reason,
             actor_id=admin["id"],
-            action="DEVICE_KILL_SWITCH_SET",
-            target_type="DEVICE_CONTROL",
-            target_id="kill-switch",
-            message="Device kill-switch updated",
-            metadata={"enabled": payload.enabled, "reason": payload.reason},
         )
-    if payload.enabled:
-        with get_db() as conn:
-            agents = conn.execute("SELECT id FROM agents").fetchall()
-        for a in agents:
-            AgentCommandService.enqueue(int(a["id"]), "DEVICE_FORCE_OBSERVE", {"reason": payload.reason})
+    except ValueError as exc:
+        _raise_feature_flag_error(exc)
     return {"status": "ok", "enabled": payload.enabled}
 
 

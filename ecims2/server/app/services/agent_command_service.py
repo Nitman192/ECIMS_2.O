@@ -84,7 +84,14 @@ class AgentCommandService:
                 message="Agent command acknowledged",
                 metadata={"agent_id": agent_id, "status": status, "error": error},
             )
-            return True
+        try:
+            from app.services.remote_action_task_service import RemoteActionTaskService
+
+            RemoteActionTaskService.sync_after_command_ack(command_id, applied=applied, error=error)
+        except Exception:
+            # Command ack must remain resilient even if optional task synchronization fails.
+            pass
+        return True
 
     @staticmethod
     def backlog_counts() -> dict[str, int]:

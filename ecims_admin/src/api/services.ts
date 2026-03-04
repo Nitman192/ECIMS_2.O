@@ -6,7 +6,15 @@ import type {
   AdminUserRolePayload,
   Alert,
   Agent,
+  FeatureFlag,
+  FeatureFlagCreatePayload,
+  FeatureFlagListResponse,
+  FeatureFlagSetStatePayload,
   LoginResponse,
+  RemoteActionTaskCreatePayload,
+  RemoteActionTaskCreateResponse,
+  RemoteActionTaskListResponse,
+  RemoteActionTaskTargetListResponse,
   User,
 } from '../types';
 
@@ -36,4 +44,16 @@ export const CoreApi = {
     api.post(`/admin/users/${userId}/reset-password`, payload),
   deleteUser: (userId: number, reason: string) =>
     api.delete(`/admin/users/${userId}`, { params: { reason } }),
+  listFeatureFlags: (params?: { q?: string; scope?: string; state?: string }) =>
+    api.get<FeatureFlagListResponse>('/admin/features', { params }),
+  createFeatureFlag: (payload: FeatureFlagCreatePayload) =>
+    api.post<FeatureFlag>('/admin/features', payload),
+  setFeatureFlagState: (flagId: number, payload: FeatureFlagSetStatePayload) =>
+    api.put<FeatureFlag>(`/admin/features/${flagId}/state`, payload),
+  listRemoteActionTasks: (params?: { page?: number; page_size?: number; action?: string; status?: string; q?: string }) =>
+    api.get<RemoteActionTaskListResponse>('/admin/ops/remote-actions/tasks', { params }),
+  getRemoteActionTaskTargets: (taskId: number) =>
+    api.get<RemoteActionTaskTargetListResponse>(`/admin/ops/remote-actions/tasks/${taskId}/targets`),
+  createRemoteActionTask: (payload: RemoteActionTaskCreatePayload) =>
+    api.post<RemoteActionTaskCreateResponse>('/admin/ops/remote-actions/tasks', payload),
 };

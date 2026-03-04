@@ -277,6 +277,30 @@ def init_db() -> dict[str, int | bool]:
             );
 
             CREATE INDEX IF NOT EXISTS idx_device_allow_tokens_agent_status ON device_allow_tokens(agent_id, status, expires_at);
+            CREATE TABLE IF NOT EXISTS feature_flags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                scope TEXT NOT NULL CHECK(scope IN ('GLOBAL', 'USER', 'AGENT')),
+                scope_target TEXT NOT NULL DEFAULT '',
+                is_enabled INTEGER NOT NULL DEFAULT 0,
+                risk_level TEXT NOT NULL DEFAULT 'LOW' CHECK(risk_level IN ('LOW', 'HIGH')),
+                is_kill_switch INTEGER NOT NULL DEFAULT 0,
+                created_by_user_id INTEGER,
+                updated_by_user_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (updated_by_user_id) REFERENCES users(id),
+                CHECK(
+                    (scope = 'GLOBAL' AND scope_target = '')
+                    OR (scope IN ('USER', 'AGENT') AND length(scope_target) > 0)
+                ),
+                UNIQUE(key, scope, scope_target)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_feature_flags_scope_enabled ON feature_flags(scope, is_enabled);
+            CREATE INDEX IF NOT EXISTS idx_feature_flags_key ON feature_flags(key);
             CREATE TABLE IF NOT EXISTS agent_commands (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_id INTEGER NOT NULL,
@@ -290,6 +314,52 @@ def init_db() -> dict[str, int | bool]:
             );
 
             CREATE INDEX IF NOT EXISTS idx_agent_commands_pending ON agent_commands(agent_id, status, created_at);
+            CREATE TABLE IF NOT EXISTS agent_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                request_hash TEXT NOT NULL,
+                action TEXT NOT NULL CHECK(action IN ('shutdown', 'restart', 'lockdown', 'policy_push')),
+                reason_code TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                requested_by_user_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'SENT', 'ACK', 'DONE', 'FAILED')),
+                target_count INTEGER NOT NULL DEFAULT 0,
+                sent_count INTEGER NOT NULL DEFAULT 0,
+                ack_count INTEGER NOT NULL DEFAULT 0,
+                done_count INTEGER NOT NULL DEFAULT 0,
+                failed_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                sent_at TEXT,
+                completed_at TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                FOREIGN KEY (requested_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_agent_tasks_status_created ON agent_tasks(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_agent_tasks_action_created ON agent_tasks(action, created_at);
+            CREATE TABLE IF NOT EXISTS agent_task_targets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                agent_id INTEGER NOT NULL,
+                command_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'SENT', 'ACK', 'DONE', 'FAILED')),
+                ack_applied INTEGER,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                sent_at TEXT,
+                ack_at TEXT,
+                completed_at TEXT,
+                FOREIGN KEY (task_id) REFERENCES agent_tasks(id) ON DELETE CASCADE,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+                FOREIGN KEY (command_id) REFERENCES agent_commands(id) ON DELETE SET NULL,
+                UNIQUE(task_id, agent_id),
+                UNIQUE(command_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_agent_task_targets_task_status ON agent_task_targets(task_id, status);
+            CREATE INDEX IF NOT EXISTS idx_agent_task_targets_agent_status ON agent_task_targets(agent_id, status);
             CREATE TABLE IF NOT EXISTS ai_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,
