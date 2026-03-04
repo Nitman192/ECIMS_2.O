@@ -342,5 +342,111 @@ export interface OfflineEnrollmentKitImportResponse {
   created_kit: boolean;
 }
 
+export type EvidenceStatus = 'SEALED' | 'IN_REVIEW' | 'RELEASED' | 'ARCHIVED';
+export type EvidenceOriginType = 'ALERT' | 'EVENT' | 'AGENT' | 'MANUAL' | 'FORENSICS_IMPORT';
+export type EvidenceClassification = 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED';
+export type EvidenceCustodyEventType =
+  | 'CREATED'
+  | 'REVIEW_STARTED'
+  | 'RESEALED'
+  | 'RELEASED'
+  | 'ARCHIVED'
+  | 'NOTE_ADDED'
+  | 'TRANSFERRED'
+  | 'EXPORT_COMPLETED';
+
+export interface EvidenceObject {
+  id: number;
+  evidence_id: string;
+  object_hash: string;
+  hash_algorithm: string;
+  origin_type: EvidenceOriginType | string;
+  origin_ref?: string | null;
+  classification: EvidenceClassification | string;
+  status: EvidenceStatus | string;
+  manifest: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  chain_version: string;
+  immutability_chain_head?: string | null;
+  sealed_at?: string | null;
+  released_at?: string | null;
+  archived_at?: string | null;
+  created_by_user_id: number;
+  updated_by_user_id: number;
+  created_by_username?: string | null;
+  updated_by_username?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EvidenceVaultListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: EvidenceObject[];
+}
+
+export interface EvidenceObjectCreatePayload {
+  object_hash: string;
+  hash_algorithm: 'SHA256';
+  origin_type: EvidenceOriginType;
+  origin_ref?: string | null;
+  classification: EvidenceClassification;
+  reason: string;
+  idempotency_key: string;
+  manifest?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EvidenceObjectCreateResponse {
+  item: EvidenceObject;
+  created: boolean;
+}
+
+export interface EvidenceCustodyEvent {
+  id: number;
+  evidence_id: string;
+  sequence_no: number;
+  event_type: EvidenceCustodyEventType | string;
+  actor_user_id?: number | null;
+  actor_username?: string | null;
+  actor_role: string;
+  reason: string;
+  details: Record<string, unknown>;
+  prev_event_hash?: string | null;
+  event_hash: string;
+  event_ts: string;
+}
+
+export interface EvidenceTimelineResponse {
+  evidence_id: string;
+  total: number;
+  chain_valid: boolean;
+  items: EvidenceCustodyEvent[];
+}
+
+export interface EvidenceCustodyEventCreatePayload {
+  event_type: Exclude<EvidenceCustodyEventType, 'CREATED'>;
+  reason: string;
+  details?: Record<string, unknown>;
+}
+
+export interface EvidenceExportPayload {
+  reason: string;
+}
+
+export interface EvidenceExportResponse {
+  bundle: {
+    evidence: EvidenceObject;
+    timeline: EvidenceCustodyEvent[];
+    chain_valid: boolean;
+    exported_at: string;
+    export_reason: string;
+  };
+  export_hash: string;
+  chain_valid: boolean;
+  event: EvidenceCustodyEvent;
+}
+
 export interface Agent { id: number; hostname: string; name: string; last_seen: string; status: string; device_mode_override?: string }
 export interface Alert { id: number; severity: 'RED' | 'YELLOW' | 'GREEN' | string; alert_type: string; message: string; ts: string; status: string }

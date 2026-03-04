@@ -23,6 +23,9 @@ from app.schemas.admin import (
     AgentRevokeRequest,
     AuditExportRequest,
     BaselineApproveRequest,
+    EvidenceCustodyEventCreateRequest,
+    EvidenceExportRequest,
+    EvidenceObjectCreateRequest,
     EnrollmentTokenIssueRequest,
     EnrollmentTokenRevokeRequest,
     DeviceAllowTokenIssueRequest,
@@ -70,6 +73,7 @@ from app.services.device_allow_token_service import DeviceAllowTokenService
 from app.services.device_control_state_service import DeviceControlStateService
 from app.services.device_policy_service import DevicePolicyService
 from app.services.enrollment_service import EnrollmentService
+from app.services.evidence_vault_service import EvidenceVaultService
 from app.services.event_service import EventService
 from app.services.feature_flag_service import FeatureFlagService
 from app.services.maintenance_schedule_service import MaintenanceScheduleService
@@ -229,6 +233,42 @@ def _raise_enrollment_error(exc: ValueError) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Enrollment token is expired") from exc
     if code == "TOKEN_CONSUMED":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Enrollment token is fully consumed") from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+
+
+def _raise_evidence_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_HASH":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid object hash format") from exc
+    if code == "INVALID_HASH_ALGORITHM":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid hash algorithm") from exc
+    if code == "INVALID_ORIGIN":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid origin type") from exc
+    if code == "INVALID_CLASSIFICATION":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid classification") from exc
+    if code == "INVALID_STATUS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid evidence status") from exc
+    if code == "INVALID_IDEMPOTENCY_KEY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid idempotency key") from exc
+    if code == "IDEMPOTENCY_KEY_CONFLICT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Idempotency key already used with a different payload",
+        ) from exc
+    if code == "EVIDENCE_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence not found") from exc
+    if code == "INVALID_EVENT_TYPE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid custody event type") from exc
+    if code == "INVALID_TRANSITION":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invalid evidence state transition") from exc
+    if code == "INVALID_DETAILS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid event details payload") from exc
+    if code == "INVALID_METADATA":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid evidence metadata payload") from exc
+    if code == "INVALID_MANIFEST":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid manifest payload") from exc
+    if code == "INVALID_REASON":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reason must be at least 5 characters") from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
 
 
@@ -1098,6 +1138,150 @@ def admin_import_offline_enrollment_kit(
     except ValueError as exc:
         _raise_enrollment_error(exc)
     return {"item": item, "created_token": created_token, "created_kit": created_kit}
+
+
+@router.get("/admin/ops/evidence-vault")
+def admin_list_evidence_vault_objects(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    status_filter: str | None = Query(default=None, alias="status"),
+    origin_filter: str | None = Query(default=None, alias="origin"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = EvidenceVaultService.list_evidence(
+            page=page,
+            page_size=page_size,
+            status_filter=status_filter,
+            origin_filter=origin_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_evidence_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="EVIDENCE_VAULT_LIST_VIEWED",
+            target_type="EVIDENCE",
+            target_id="all",
+            message="Admin viewed evidence vault listing",
+            metadata={
+                "page": page,
+                "page_size": page_size,
+                "status": status_filter,
+                "origin": origin_filter,
+                "query": q,
+                "count": len(payload["items"]),
+            },
+        )
+    return payload
+
+
+@router.post("/admin/ops/evidence-vault", status_code=status.HTTP_201_CREATED)
+def admin_create_evidence_vault_object(
+    payload: EvidenceObjectCreateRequest,
+    response: Response,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item, created = EvidenceVaultService.create_evidence(
+            object_hash=payload.object_hash,
+            hash_algorithm=payload.hash_algorithm,
+            origin_type=payload.origin_type,
+            origin_ref=payload.origin_ref,
+            classification=payload.classification,
+            reason=payload.reason,
+            idempotency_key=payload.idempotency_key,
+            manifest=payload.manifest,
+            metadata=payload.metadata,
+            actor_id=admin["id"],
+            actor_role=admin["role"],
+        )
+    except ValueError as exc:
+        _raise_evidence_error(exc)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {"item": item, "created": created}
+
+
+@router.get("/admin/ops/evidence-vault/{evidence_id}")
+def admin_get_evidence_vault_object(evidence_id: str, admin: dict = Depends(require_admin)):
+    item = EvidenceVaultService.get_evidence(evidence_id)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence not found")
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="EVIDENCE_OBJECT_VIEWED",
+            target_type="EVIDENCE",
+            target_id=evidence_id,
+            message="Admin viewed evidence object details",
+            metadata={},
+        )
+    return item
+
+
+@router.get("/admin/ops/evidence-vault/{evidence_id}/timeline")
+def admin_get_evidence_vault_timeline(evidence_id: str, admin: dict = Depends(require_admin)):
+    try:
+        timeline = EvidenceVaultService.get_timeline(evidence_id)
+    except ValueError as exc:
+        _raise_evidence_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="EVIDENCE_TIMELINE_VIEWED",
+            target_type="EVIDENCE",
+            target_id=evidence_id,
+            message="Admin viewed evidence custody timeline",
+            metadata={"total": timeline["total"], "chain_valid": timeline["chain_valid"]},
+        )
+    return timeline
+
+
+@router.post("/admin/ops/evidence-vault/{evidence_id}/custody")
+def admin_append_evidence_vault_custody_event(
+    evidence_id: str,
+    payload: EvidenceCustodyEventCreateRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item, event = EvidenceVaultService.append_custody_event(
+            evidence_id=evidence_id,
+            event_type=payload.event_type,
+            reason=payload.reason,
+            details=payload.details,
+            actor_id=admin["id"],
+            actor_role=admin["role"],
+        )
+    except ValueError as exc:
+        _raise_evidence_error(exc)
+    return {"item": item, "event": event}
+
+
+@router.post("/admin/ops/evidence-vault/{evidence_id}/export")
+def admin_export_evidence_vault_bundle(
+    evidence_id: str,
+    payload: EvidenceExportRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        result = EvidenceVaultService.export_evidence_bundle(
+            evidence_id=evidence_id,
+            reason=payload.reason,
+            actor_id=admin["id"],
+            actor_role=admin["role"],
+        )
+    except ValueError as exc:
+        _raise_evidence_error(exc)
+    return result
 
 
 

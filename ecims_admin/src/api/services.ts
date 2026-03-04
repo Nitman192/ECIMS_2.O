@@ -11,6 +11,15 @@ import type {
   FeatureFlagListResponse,
   FeatureFlagSetStatePayload,
   EnrollmentToken,
+  EvidenceCustodyEventCreatePayload,
+  EvidenceCustodyEvent,
+  EvidenceExportPayload,
+  EvidenceExportResponse,
+  EvidenceObject,
+  EvidenceObjectCreatePayload,
+  EvidenceObjectCreateResponse,
+  EvidenceTimelineResponse,
+  EvidenceVaultListResponse,
   EnrollmentTokenIssuePayload,
   EnrollmentTokenIssueResponse,
   EnrollmentTokenListResponse,
@@ -91,4 +100,16 @@ export const CoreApi = {
     api.post<{ status: string; item: EnrollmentToken }>(`/admin/ops/enrollment/tokens/${tokenId}/revoke`, payload),
   importOfflineEnrollmentKit: (payload: OfflineEnrollmentKitImportPayload) =>
     api.post<OfflineEnrollmentKitImportResponse>('/admin/ops/enrollment/offline-kit/import', payload),
+  listEvidenceVault: (params?: { page?: number; page_size?: number; status?: string; origin?: string; q?: string }) =>
+    api.get<EvidenceVaultListResponse>('/admin/ops/evidence-vault', { params }),
+  createEvidenceObject: (payload: EvidenceObjectCreatePayload) =>
+    api.post<EvidenceObjectCreateResponse>('/admin/ops/evidence-vault', payload),
+  getEvidenceObject: (evidenceId: string) =>
+    api.get<EvidenceObject>(`/admin/ops/evidence-vault/${evidenceId}`),
+  getEvidenceTimeline: (evidenceId: string) =>
+    api.get<EvidenceTimelineResponse>(`/admin/ops/evidence-vault/${evidenceId}/timeline`),
+  appendEvidenceCustodyEvent: (evidenceId: string, payload: EvidenceCustodyEventCreatePayload) =>
+    api.post<{ item: EvidenceObject; event: EvidenceCustodyEvent }>(`/admin/ops/evidence-vault/${evidenceId}/custody`, payload),
+  exportEvidenceBundle: (evidenceId: string, payload: EvidenceExportPayload) =>
+    api.post<EvidenceExportResponse>(`/admin/ops/evidence-vault/${evidenceId}/export`, payload),
 };

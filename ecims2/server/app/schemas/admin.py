@@ -138,3 +138,27 @@ class EnrollmentTokenRevokeRequest(BaseModel):
 
 class OfflineEnrollmentKitImportRequest(BaseModel):
     bundle: dict[str, Any]
+
+
+class EvidenceObjectCreateRequest(BaseModel):
+    object_hash: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
+    hash_algorithm: str = Field(default="SHA256", pattern=r"^(SHA256)$")
+    origin_type: str = Field(pattern=r"^(ALERT|EVENT|AGENT|MANUAL|FORENSICS_IMPORT)$")
+    origin_ref: str | None = Field(default=None, max_length=255)
+    classification: str = Field(default="INTERNAL", pattern=r"^(INTERNAL|CONFIDENTIAL|RESTRICTED)$")
+    reason: str = Field(min_length=5, max_length=1024)
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+    manifest: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class EvidenceCustodyEventCreateRequest(BaseModel):
+    event_type: str = Field(
+        pattern=r"^(REVIEW_STARTED|RESEALED|RELEASED|ARCHIVED|NOTE_ADDED|TRANSFERRED)$"
+    )
+    reason: str = Field(min_length=5, max_length=1024)
+    details: dict[str, Any] | None = None
+
+
+class EvidenceExportRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=1024)

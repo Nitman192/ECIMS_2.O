@@ -459,6 +459,63 @@ def init_db() -> dict[str, int | bool]:
             );
 
             CREATE INDEX IF NOT EXISTS idx_offline_kits_token_status ON offline_enrollment_kits(token_id, status);
+            CREATE TABLE IF NOT EXISTS evidence_objects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                evidence_id TEXT NOT NULL UNIQUE,
+                object_hash TEXT NOT NULL,
+                hash_algorithm TEXT NOT NULL CHECK(hash_algorithm IN ('SHA256')),
+                origin_type TEXT NOT NULL CHECK(origin_type IN ('ALERT', 'EVENT', 'AGENT', 'MANUAL', 'FORENSICS_IMPORT')),
+                origin_ref TEXT,
+                classification TEXT NOT NULL CHECK(classification IN ('INTERNAL', 'CONFIDENTIAL', 'RESTRICTED')),
+                status TEXT NOT NULL CHECK(status IN ('SEALED', 'IN_REVIEW', 'RELEASED', 'ARCHIVED')),
+                manifest_json TEXT NOT NULL DEFAULT '{}',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                create_idempotency_key TEXT NOT NULL UNIQUE,
+                request_hash TEXT NOT NULL,
+                chain_version TEXT NOT NULL DEFAULT '1',
+                immutability_chain_head TEXT,
+                sealed_at TEXT,
+                released_at TEXT,
+                archived_at TEXT,
+                created_by_user_id INTEGER NOT NULL,
+                updated_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (updated_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_evidence_objects_status_created ON evidence_objects(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_evidence_objects_origin_status ON evidence_objects(origin_type, status);
+            CREATE INDEX IF NOT EXISTS idx_evidence_objects_hash ON evidence_objects(object_hash);
+            CREATE TABLE IF NOT EXISTS evidence_custody_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                evidence_id TEXT NOT NULL,
+                sequence_no INTEGER NOT NULL,
+                event_type TEXT NOT NULL CHECK(event_type IN (
+                    'CREATED',
+                    'REVIEW_STARTED',
+                    'RESEALED',
+                    'RELEASED',
+                    'ARCHIVED',
+                    'NOTE_ADDED',
+                    'TRANSFERRED',
+                    'EXPORT_COMPLETED'
+                )),
+                actor_user_id INTEGER,
+                actor_role TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                details_json TEXT NOT NULL DEFAULT '{}',
+                prev_event_hash TEXT,
+                event_hash TEXT NOT NULL UNIQUE,
+                event_ts TEXT NOT NULL,
+                FOREIGN KEY (evidence_id) REFERENCES evidence_objects(evidence_id) ON DELETE CASCADE,
+                FOREIGN KEY (actor_user_id) REFERENCES users(id),
+                UNIQUE(evidence_id, sequence_no)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_evidence_custody_events_evidence_seq ON evidence_custody_events(evidence_id, sequence_no);
+            CREATE INDEX IF NOT EXISTS idx_evidence_custody_events_ts ON evidence_custody_events(event_ts);
             CREATE TABLE IF NOT EXISTS ai_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,
