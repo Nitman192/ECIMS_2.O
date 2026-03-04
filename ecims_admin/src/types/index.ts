@@ -149,5 +149,124 @@ export interface RemoteActionTaskCreateResponse {
   created: boolean;
 }
 
+export type MaintenanceScheduleStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED';
+export type MaintenanceScheduleRecurrence = 'DAILY' | 'WEEKLY';
+export type MaintenanceOrchestrationMode =
+  | 'SAFE_SHUTDOWN_START'
+  | 'SHUTDOWN_ONLY'
+  | 'RESTART_ONLY'
+  | 'POLICY_PUSH_ONLY';
+
+export interface MaintenanceSchedule {
+  id: number;
+  window_name: string;
+  timezone: string;
+  start_time_local: string;
+  duration_minutes: number;
+  recurrence: MaintenanceScheduleRecurrence | string;
+  weekly_days: number[];
+  target_agent_ids: number[];
+  orchestration_mode: MaintenanceOrchestrationMode | string;
+  status: MaintenanceScheduleStatus | string;
+  reason_code: string;
+  reason: string;
+  next_run_at?: string | null;
+  next_run_local?: string | null;
+  last_run_at?: string | null;
+  conflict_count?: number;
+  has_conflict?: boolean;
+  created_by_username?: string | null;
+  updated_by_username?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaintenanceScheduleListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: MaintenanceSchedule[];
+}
+
+export interface MaintenanceScheduleCreatePayload {
+  window_name: string;
+  timezone: string;
+  start_time_local: string;
+  duration_minutes: number;
+  recurrence: MaintenanceScheduleRecurrence;
+  weekly_days: number[];
+  target_agent_ids: number[];
+  orchestration_mode: MaintenanceOrchestrationMode;
+  status: MaintenanceScheduleStatus;
+  reason_code: string;
+  reason: string;
+  allow_conflicts: boolean;
+  idempotency_key: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MaintenanceScheduleCreateResponse {
+  item: MaintenanceSchedule;
+  created: boolean;
+}
+
+export interface MaintenanceSchedulePreviewPayload {
+  window_name: string;
+  timezone: string;
+  start_time_local: string;
+  duration_minutes: number;
+  recurrence: MaintenanceScheduleRecurrence;
+  weekly_days: number[];
+  target_agent_ids: number[];
+  orchestration_mode: MaintenanceOrchestrationMode;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MaintenanceScheduleConflict {
+  schedule_id: number;
+  window_name: string;
+  schedule_status: string;
+  overlap_start_utc: string;
+  overlap_start_local: string;
+  shared_agent_ids: number[];
+  shared_agent_count: number;
+}
+
+export interface MaintenanceSchedulePreviewResponse {
+  next_runs: Array<{
+    run_at_utc: string;
+    run_at_local: string;
+    window_end_utc: string;
+    window_end_local: string;
+  }>;
+  conflicts: MaintenanceScheduleConflict[];
+  conflict_count: number;
+}
+
+export interface MaintenanceScheduleConflictResponse {
+  schedule_id: number;
+  total: number;
+  conflicts: MaintenanceScheduleConflict[];
+}
+
+export interface MaintenanceScheduleRunDueResponse {
+  due_count: number;
+  executed_count: number;
+  failed_count: number;
+  tasks_dispatched: number;
+  items: Array<{
+    schedule_id: number;
+    run_key: string;
+    status: string;
+    task_ids: number[];
+    errors: string[];
+  }>;
+}
+
+export interface MaintenanceScheduleStatePayload {
+  status: MaintenanceScheduleStatus;
+  reason: string;
+}
+
 export interface Agent { id: number; hostname: string; name: string; last_seen: string; status: string; device_mode_override?: string }
 export interface Alert { id: number; severity: 'RED' | 'YELLOW' | 'GREEN' | string; alert_type: string; message: string; ts: string; status: string }

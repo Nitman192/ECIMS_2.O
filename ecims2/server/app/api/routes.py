@@ -29,6 +29,9 @@ from app.schemas.admin import (
     DeviceSetAgentModeRequest,
     FeatureFlagCreateRequest,
     FeatureFlagSetStateRequest,
+    MaintenanceScheduleCreateRequest,
+    MaintenanceSchedulePreviewRequest,
+    MaintenanceScheduleStateUpdateRequest,
     RemoteActionTaskCreateRequest,
     DeviceUnblockApproveRequest,
     DeviceUnblockRequestCreate,
@@ -64,6 +67,7 @@ from app.services.device_control_state_service import DeviceControlStateService
 from app.services.device_policy_service import DevicePolicyService
 from app.services.event_service import EventService
 from app.services.feature_flag_service import FeatureFlagService
+from app.services.maintenance_schedule_service import MaintenanceScheduleService
 from app.services.remote_action_task_service import RemoteActionTaskService
 from app.services.retention_service import RetentionService
 from app.services.user_service import UserService
@@ -142,6 +146,46 @@ def _raise_remote_action_error(exc: ValueError) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Agent revoked: {revoked}") from exc
     if code == "TASK_NOT_FOUND":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found") from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+
+
+def _raise_schedule_error(exc: ValueError) -> None:
+    code = str(exc)
+    if code == "INVALID_STATUS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid schedule status") from exc
+    if code == "INVALID_REASON_CODE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reason code") from exc
+    if code == "INVALID_TIMEZONE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid timezone") from exc
+    if code == "INVALID_TIME_FORMAT":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid local start time format") from exc
+    if code == "INVALID_RECURRENCE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid recurrence") from exc
+    if code == "INVALID_WEEKLY_DAYS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Weekly schedules require valid weekday list (0-6)") from exc
+    if code == "INVALID_ORCHESTRATION_MODE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid orchestration mode") from exc
+    if code == "INVALID_DURATION":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Duration must be between 15 and 1440 minutes") from exc
+    if code == "INVALID_AGENT_IDS":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one valid agent ID is required") from exc
+    if code == "BATCH_TOO_LARGE":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target agent list exceeds safe limit (100)") from exc
+    if code == "INVALID_IDEMPOTENCY_KEY":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid idempotency key") from exc
+    if code == "IDEMPOTENCY_KEY_CONFLICT":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Idempotency key already used with different payload") from exc
+    if code.startswith("MISSING_AGENTS:"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Agent not found: {code.split(':', 1)[1]}") from exc
+    if code.startswith("REVOKED_AGENTS:"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Agent revoked: {code.split(':', 1)[1]}") from exc
+    if code.startswith("CONFLICT_DETECTED:"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Schedule conflict detected with schedule IDs: {code.split(':', 1)[1]}",
+        ) from exc
+    if code == "SCHEDULE_NOT_FOUND":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found") from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
 
 
@@ -707,6 +751,159 @@ def admin_create_remote_action_task(
     if not created:
         response.status_code = status.HTTP_200_OK
     return {"item": task, "created": created}
+
+
+@router.get("/admin/ops/schedules")
+def admin_list_maintenance_schedules(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    status_filter: str | None = Query(default=None, alias="status"),
+    timezone_filter: str | None = Query(default=None, alias="timezone"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = MaintenanceScheduleService.list_schedules(
+            page=page,
+            page_size=page_size,
+            status_filter=status_filter,
+            timezone_filter=timezone_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        _raise_schedule_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="MAINTENANCE_SCHEDULE_LIST_VIEWED",
+            target_type="MAINTENANCE_SCHEDULE",
+            target_id="all",
+            message="Admin viewed maintenance schedule list",
+            metadata={
+                "page": page,
+                "page_size": page_size,
+                "status": status_filter,
+                "timezone": timezone_filter,
+                "query": q,
+                "count": len(payload["items"]),
+            },
+        )
+    return payload
+
+
+@router.post("/admin/ops/schedules", status_code=status.HTTP_201_CREATED)
+def admin_create_maintenance_schedule(
+    payload: MaintenanceScheduleCreateRequest,
+    response: Response,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item, created = MaintenanceScheduleService.create_schedule(
+            window_name=payload.window_name,
+            timezone_name=payload.timezone,
+            start_time_local=payload.start_time_local,
+            duration_minutes=payload.duration_minutes,
+            recurrence=payload.recurrence,
+            weekly_days=payload.weekly_days,
+            target_agent_ids=payload.target_agent_ids,
+            orchestration_mode=payload.orchestration_mode,
+            status_value=payload.status,
+            reason_code=payload.reason_code,
+            reason=payload.reason,
+            allow_conflicts=payload.allow_conflicts,
+            idempotency_key=payload.idempotency_key,
+            metadata=payload.metadata,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_schedule_error(exc)
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return {"item": item, "created": created}
+
+
+@router.post("/admin/ops/schedules/preview")
+def admin_preview_maintenance_schedule(
+    payload: MaintenanceSchedulePreviewRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        result = MaintenanceScheduleService.preview_schedule(
+            window_name=payload.window_name,
+            timezone_name=payload.timezone,
+            start_time_local=payload.start_time_local,
+            duration_minutes=payload.duration_minutes,
+            recurrence=payload.recurrence,
+            weekly_days=payload.weekly_days,
+            target_agent_ids=payload.target_agent_ids,
+            orchestration_mode=payload.orchestration_mode,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        _raise_schedule_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="MAINTENANCE_SCHEDULE_PREVIEWED",
+            target_type="MAINTENANCE_SCHEDULE",
+            target_id="preview",
+            message="Maintenance schedule preview generated",
+            metadata={"conflict_count": result["conflict_count"]},
+        )
+    return result
+
+
+@router.post("/admin/ops/schedules/run-due")
+def admin_run_due_maintenance_schedules(
+    limit: int = Query(default=20, ge=1, le=100),
+    admin: dict = Depends(require_admin),
+):
+    result = MaintenanceScheduleService.run_due_schedules(actor_id=admin["id"], limit=limit)
+    return result
+
+
+@router.get("/admin/ops/schedules/{schedule_id}/conflicts")
+def admin_get_maintenance_schedule_conflicts(schedule_id: int, admin: dict = Depends(require_admin)):
+    try:
+        conflicts = MaintenanceScheduleService.get_schedule_conflicts(schedule_id)
+    except ValueError as exc:
+        _raise_schedule_error(exc)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="MAINTENANCE_SCHEDULE_CONFLICTS_VIEWED",
+            target_type="MAINTENANCE_SCHEDULE",
+            target_id=schedule_id,
+            message="Maintenance schedule conflicts viewed",
+            metadata={"count": len(conflicts)},
+        )
+    return {"schedule_id": schedule_id, "conflicts": conflicts, "total": len(conflicts)}
+
+
+@router.post("/admin/ops/schedules/{schedule_id}/state")
+def admin_update_maintenance_schedule_state(
+    schedule_id: int,
+    payload: MaintenanceScheduleStateUpdateRequest,
+    admin: dict = Depends(require_admin),
+):
+    try:
+        item = MaintenanceScheduleService.update_schedule_state(
+            schedule_id=schedule_id,
+            status_value=payload.status,
+            reason=payload.reason,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_schedule_error(exc)
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+    return item
 
 
 

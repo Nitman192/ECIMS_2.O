@@ -11,6 +11,14 @@ import type {
   FeatureFlagListResponse,
   FeatureFlagSetStatePayload,
   LoginResponse,
+  MaintenanceScheduleConflictResponse,
+  MaintenanceScheduleCreatePayload,
+  MaintenanceScheduleCreateResponse,
+  MaintenanceScheduleListResponse,
+  MaintenanceSchedulePreviewPayload,
+  MaintenanceSchedulePreviewResponse,
+  MaintenanceScheduleRunDueResponse,
+  MaintenanceScheduleStatePayload,
   RemoteActionTaskCreatePayload,
   RemoteActionTaskCreateResponse,
   RemoteActionTaskListResponse,
@@ -56,4 +64,16 @@ export const CoreApi = {
     api.get<RemoteActionTaskTargetListResponse>(`/admin/ops/remote-actions/tasks/${taskId}/targets`),
   createRemoteActionTask: (payload: RemoteActionTaskCreatePayload) =>
     api.post<RemoteActionTaskCreateResponse>('/admin/ops/remote-actions/tasks', payload),
+  listSchedules: (params?: { page?: number; page_size?: number; status?: string; timezone?: string; q?: string }) =>
+    api.get<MaintenanceScheduleListResponse>('/admin/ops/schedules', { params }),
+  createSchedule: (payload: MaintenanceScheduleCreatePayload) =>
+    api.post<MaintenanceScheduleCreateResponse>('/admin/ops/schedules', payload),
+  previewSchedule: (payload: MaintenanceSchedulePreviewPayload) =>
+    api.post<MaintenanceSchedulePreviewResponse>('/admin/ops/schedules/preview', payload),
+  getScheduleConflicts: (scheduleId: number) =>
+    api.get<MaintenanceScheduleConflictResponse>(`/admin/ops/schedules/${scheduleId}/conflicts`),
+  updateScheduleState: (scheduleId: number, payload: MaintenanceScheduleStatePayload) =>
+    api.post(`/admin/ops/schedules/${scheduleId}/state`, payload),
+  runDueSchedules: (limit = 20) =>
+    api.post<MaintenanceScheduleRunDueResponse>('/admin/ops/schedules/run-due', null, { params: { limit } }),
 };

@@ -95,8 +95,8 @@ export const DashboardPage = () => {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Security Operations Dashboard"
-        subtitle="Monitor endpoint posture, alert flow, and policy distribution in real time across your enterprise fleet."
+        title="ECIMS 2.0 Control Plane Dashboard"
+        subtitle="Monitor endpoint posture, alert flow, and policy distribution in real time across network."
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

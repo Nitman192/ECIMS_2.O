@@ -360,6 +360,48 @@ def init_db() -> dict[str, int | bool]:
 
             CREATE INDEX IF NOT EXISTS idx_agent_task_targets_task_status ON agent_task_targets(task_id, status);
             CREATE INDEX IF NOT EXISTS idx_agent_task_targets_agent_status ON agent_task_targets(agent_id, status);
+            CREATE TABLE IF NOT EXISTS maintenance_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                window_name TEXT NOT NULL,
+                timezone TEXT NOT NULL,
+                start_time_local TEXT NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                recurrence TEXT NOT NULL CHECK(recurrence IN ('DAILY', 'WEEKLY')),
+                weekly_days_json TEXT NOT NULL DEFAULT '[]',
+                target_agent_ids_json TEXT NOT NULL,
+                orchestration_mode TEXT NOT NULL CHECK(orchestration_mode IN ('SAFE_SHUTDOWN_START', 'SHUTDOWN_ONLY', 'RESTART_ONLY', 'POLICY_PUSH_ONLY')),
+                status TEXT NOT NULL CHECK(status IN ('DRAFT', 'ACTIVE', 'PAUSED')),
+                reason_code TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                create_idempotency_key TEXT NOT NULL UNIQUE,
+                request_hash TEXT NOT NULL,
+                next_run_at TEXT,
+                last_run_at TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_by_user_id INTEGER NOT NULL,
+                updated_by_user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (updated_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_maintenance_schedules_status_next ON maintenance_schedules(status, next_run_at);
+            CREATE INDEX IF NOT EXISTS idx_maintenance_schedules_timezone_start ON maintenance_schedules(timezone, start_time_local);
+            CREATE TABLE IF NOT EXISTS maintenance_schedule_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                schedule_id INTEGER NOT NULL,
+                run_key TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL CHECK(status IN ('RUNNING', 'DONE', 'FAILED')),
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                dispatched_task_ids_json TEXT NOT NULL DEFAULT '[]',
+                details_json TEXT NOT NULL DEFAULT '{}',
+                error TEXT,
+                FOREIGN KEY (schedule_id) REFERENCES maintenance_schedules(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_maintenance_schedule_runs_schedule_started ON maintenance_schedule_runs(schedule_id, started_at);
             CREATE TABLE IF NOT EXISTS ai_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,

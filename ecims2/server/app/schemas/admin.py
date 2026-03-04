@@ -93,3 +93,30 @@ class RemoteActionTaskCreateRequest(BaseModel):
     reason: str = Field(min_length=5, max_length=1024)
     confirm_high_risk: bool = False
     metadata: dict[str, Any] | None = None
+
+
+class MaintenanceSchedulePreviewRequest(BaseModel):
+    window_name: str = Field(min_length=3, max_length=128)
+    timezone: str = Field(min_length=3, max_length=64)
+    start_time_local: str = Field(pattern=r"^\d{2}:\d{2}$")
+    duration_minutes: int = Field(ge=15, le=1440)
+    recurrence: str = Field(pattern=r"^(DAILY|WEEKLY)$")
+    weekly_days: list[int] = Field(default_factory=list, max_length=7)
+    target_agent_ids: list[int] = Field(min_length=1, max_length=100)
+    orchestration_mode: str = Field(
+        pattern=r"^(SAFE_SHUTDOWN_START|SHUTDOWN_ONLY|RESTART_ONLY|POLICY_PUSH_ONLY)$"
+    )
+    metadata: dict[str, Any] | None = None
+
+
+class MaintenanceScheduleCreateRequest(MaintenanceSchedulePreviewRequest):
+    status: str = Field(default="ACTIVE", pattern=r"^(DRAFT|ACTIVE|PAUSED)$")
+    reason_code: str = Field(min_length=2, max_length=64, pattern=r"^[A-Z0-9_-]+$")
+    reason: str = Field(min_length=5, max_length=1024)
+    allow_conflicts: bool = False
+    idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
+
+
+class MaintenanceScheduleStateUpdateRequest(BaseModel):
+    status: str = Field(pattern=r"^(DRAFT|ACTIVE|PAUSED)$")
+    reason: str = Field(min_length=5, max_length=1024)
