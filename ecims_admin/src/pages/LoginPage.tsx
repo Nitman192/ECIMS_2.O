@@ -50,8 +50,8 @@ export const LoginPage = () => {
         onSubmit={onSubmit}
         className="w-full max-w-md rounded-2xl border border-slate-700 bg-surface-800 p-8 shadow-soft"
       >
-        <h1 className="mb-2 text-2xl font-semibold text-white">ECIMS Admin Console</h1>
-        <p className="mb-6 text-sm text-slate-400">Enterprise Security Operations Portal</p>
+        <h1 className="mb-2 text-2xl font-semibold text-white">ECIMS 2.0 Admin Console</h1>
+        <p className="mb-6 text-sm text-slate-400">Endpoint Configuration Incident Mgmt Sys</p>
         <div className="space-y-4">
           <input
             className="input"
