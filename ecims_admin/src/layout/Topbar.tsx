@@ -57,6 +57,15 @@ const resolveSearchRoute = (rawValue: string): string | null => {
   return match ? match.to : null;
 };
 
+const shortcutAccent = (to: string): 'red' | 'green' => (to === '/alerts' ? 'red' : 'green');
+
+const shortcutLineClass = (accent: 'red' | 'green', isActive: boolean) => {
+  if (accent === 'red') {
+    return isActive ? 'w-full bg-rose-400 dark:bg-rose-400' : 'w-0 bg-rose-300/80 dark:bg-rose-500/70 group-hover:w-6';
+  }
+  return isActive ? 'w-full bg-emerald-400 dark:bg-emerald-400' : 'w-0 bg-emerald-300/80 dark:bg-emerald-500/70 group-hover:w-6';
+};
+
 export const Topbar = ({
   onOpenSidebar,
   onToggleCollapse,
@@ -156,19 +165,31 @@ export const Topbar = ({
 
           <div className="hidden xl:flex items-center gap-1">
             {SHORTCUTS.slice(0, 3).map((item) => (
-              <button
-                key={item.to}
-                type="button"
-                onClick={() => navigateTo(item.to)}
-                className={`h-9 rounded-lg px-2 text-xs font-medium transition ${
-                  location.pathname === item.to
-                    ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300'
-                    : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
-                }`}
-                title={item.hotkey}
-              >
-                {item.label}
-              </button>
+              (() => {
+                const isActive =
+                  location.pathname === item.to || (item.to !== '/' && location.pathname.startsWith(`${item.to}/`));
+                const accent = shortcutAccent(item.to);
+                return (
+                  <button
+                    key={item.to}
+                    type="button"
+                    onClick={() => navigateTo(item.to)}
+                    className={`group h-9 rounded-lg px-2 text-xs font-medium transition ${
+                      isActive
+                        ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300'
+                        : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                    }`}
+                    title={item.hotkey}
+                  >
+                    <span className="relative inline-flex items-center pb-0.5">
+                      {item.label}
+                      <span
+                        className={`pointer-events-none absolute -bottom-0.5 left-0 h-0.5 rounded-full transition-all duration-300 ${shortcutLineClass(accent, isActive)}`}
+                      />
+                    </span>
+                  </button>
+                );
+              })()
             ))}
           </div>
         </div>

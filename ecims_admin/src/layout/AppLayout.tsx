@@ -14,7 +14,10 @@ export const AppLayout = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const sessionTimeoutSeconds = useMemo(() => Number(import.meta.env.VITE_SESSION_TIMEOUT_SECONDS ?? 900), []);
+  const sessionTimeoutSeconds = useMemo(
+    () => Number(import.meta.env.VITE_SESSION_TIMEOUT_SECONDS ?? 60),
+    [],
+  );
 
   const handleLogout = useCallback(
     (reason: 'manual' | 'timeout' = 'manual') => {
@@ -30,6 +33,7 @@ export const AppLayout = () => {
   const session = useSessionTimeout({
     enabled: Boolean(token && user),
     timeoutSeconds: sessionTimeoutSeconds,
+    warningSeconds: 30,
     onTimeout: () => handleLogout('timeout'),
   });
 
