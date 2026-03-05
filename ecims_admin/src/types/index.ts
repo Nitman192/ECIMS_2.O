@@ -172,6 +172,20 @@ export interface DeviceRolloutStatusResponse {
   command_backlog: Record<string, number>;
 }
 
+export interface AdminMetricsResponse {
+  request_id: string;
+  agent_commands_pending: number;
+  agent_commands_applied: number;
+  agent_commands_failed: number;
+  device_events_ingested_total: Record<string, number>;
+  allow_tokens_issued: number;
+  allow_tokens_revoked: number;
+  allow_tokens_expired: number;
+  kill_switch_state: boolean;
+  rollout: Record<string, number>;
+  rate_limiter_rejections_total: number;
+}
+
 export type MaintenanceScheduleStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED';
 export type MaintenanceScheduleRecurrence = 'DAILY' | 'WEEKLY';
 export type MaintenanceOrchestrationMode =
@@ -792,5 +806,23 @@ export interface StateBackupRestoreApplyResponse {
   created: boolean;
 }
 
-export interface Agent { id: number; hostname: string; name: string; last_seen: string; status: string; device_mode_override?: string }
-export interface Alert { id: number; severity: 'RED' | 'YELLOW' | 'GREEN' | string; alert_type: string; message: string; ts: string; status: string }
+export interface Agent {
+  id: number;
+  hostname: string;
+  name: string;
+  registered_at?: string;
+  last_seen: string;
+  status: string;
+  agent_revoked?: boolean;
+  device_mode_override?: string | null;
+}
+
+export interface Alert {
+  id: number;
+  agent_id?: number;
+  severity: 'RED' | 'YELLOW' | 'GREEN' | string;
+  alert_type: string;
+  message: string;
+  ts: string;
+  status: string;
+}

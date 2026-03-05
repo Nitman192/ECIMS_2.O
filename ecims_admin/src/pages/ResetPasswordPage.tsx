@@ -1,6 +1,7 @@
-﻿import { FormEvent, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthApi } from '../api/services';
+import { getApiErrorMessage } from '../api/utils';
 import { Card } from '../components/ui/Card';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useAuth } from '../store/AuthContext';
@@ -41,8 +42,8 @@ export const ResetPasswordPage = () => {
         setSession(token, me.data);
       }
       navigate('/', { replace: true });
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Password reset failed');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Password reset failed'));
     } finally {
       setLoading(false);
     }
@@ -62,6 +63,7 @@ export const ResetPasswordPage = () => {
             <input
               className="input"
               type="password"
+              autoComplete="current-password"
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
               placeholder="Enter current password"
@@ -74,6 +76,7 @@ export const ResetPasswordPage = () => {
             <input
               className="input"
               type="password"
+              autoComplete="new-password"
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
               placeholder="Enter new password"
@@ -87,6 +90,7 @@ export const ResetPasswordPage = () => {
             <input
               className="input"
               type="password"
+              autoComplete="new-password"
               value={confirmPassword}
               onChange={(event) => setConfirmPassword(event.target.value)}
               placeholder="Re-enter new password"

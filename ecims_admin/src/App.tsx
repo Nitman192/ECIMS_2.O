@@ -1,7 +1,8 @@
-﻿import { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom';
 import { bindAuthHandlers } from './api/client';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { Spinner } from './components/ui/Spinner';
 import { AppLayout } from './layout/AppLayout';
 import { AdminAuditExplorerPage } from './pages/admin/AdminAuditExplorerPage';
 import { AdminFeaturesPage } from './pages/admin/AdminFeaturesPage';
@@ -27,7 +28,7 @@ import { SecurityCenterPage } from './pages/SecurityCenterPage';
 import { useAuth } from './store/AuthContext';
 
 export const App = () => {
-  const { token, clearSession } = useAuth();
+  const { token, clearSession, isInitializing, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -35,14 +36,22 @@ export const App = () => {
       () => token,
       () => {
         clearSession();
-        navigate('/login', { replace: true });
+        navigate('/login', { replace: true, state: { reason: 'session-expired' } });
       },
     );
   }, [token, clearSession, navigate]);
 
+  if (isInitializing) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-950">
+        <Spinner label="Restoring session..." />
+      </div>
+    );
+  }
+
   return (
     <Routes>
-      <Route path="/login" element={<LoginPage />} />
+      <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route
         path="/"
         element={
@@ -87,7 +96,7 @@ export const App = () => {
           <Route path="break-glass" element={<BreakGlassPage />} />
         </Route>
       </Route>
-      <Route path="*" element={<Navigate to={token ? '/' : '/login'} replace />} />
+      <Route path="*" element={<Navigate to={isAuthenticated ? '/' : '/login'} replace />} />
     </Routes>
   );
 };

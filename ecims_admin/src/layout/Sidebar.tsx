@@ -111,6 +111,13 @@ const accentLineClass = (accent: 'red' | 'green', isActive: boolean) => {
   return isActive ? 'w-full bg-emerald-300 dark:bg-emerald-400' : 'w-0 bg-emerald-300/80 dark:bg-emerald-500/70 group-hover:w-8';
 };
 
+const accentIconLineClass = (accent: 'red' | 'green', isActive: boolean) => {
+  if (accent === 'red') {
+    return isActive ? 'w-4 bg-rose-300 dark:bg-rose-400' : 'w-0 bg-rose-300/80 dark:bg-rose-500/70 group-hover:w-3';
+  }
+  return isActive ? 'w-4 bg-emerald-300 dark:bg-emerald-400' : 'w-0 bg-emerald-300/80 dark:bg-emerald-500/70 group-hover:w-3';
+};
+
 export const Sidebar = ({
   collapsed,
   onToggleCollapse,
@@ -132,7 +139,7 @@ export const Sidebar = ({
         <div className="flex w-full flex-col">
           <div
             className={`relative flex h-16 items-center border-b border-slate-200 dark:border-slate-800 ${
-              collapsed ? 'justify-center px-2' : 'justify-between px-4'
+              collapsed ? 'justify-between px-2' : 'justify-between px-4'
             }`}
           >
             <div className={`flex min-w-0 items-center ${collapsed ? '' : 'gap-3'}`}>
@@ -151,11 +158,7 @@ export const Sidebar = ({
               )}
             </div>
 
-            <div
-              className={`flex items-center gap-1 ${
-                collapsed ? 'absolute right-2 top-1/2 -translate-y-1/2' : ''
-              }`}
-            >
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={onCloseMobile}
@@ -195,7 +198,16 @@ export const Sidebar = ({
                   >
                     {({ isActive }) => (
                       <>
-                        <Icon className="text-base" />
+                        {collapsed ? (
+                          <span className="relative inline-flex items-center pb-0.5">
+                            <Icon className="text-base" />
+                            <span
+                              className={`pointer-events-none absolute -bottom-0.5 left-1/2 h-0.5 -translate-x-1/2 rounded-full transition-all duration-300 ${accentIconLineClass(item.accent, isActive)}`}
+                            />
+                          </span>
+                        ) : (
+                          <Icon className="text-base" />
+                        )}
                         {!collapsed && (
                           <span className="relative truncate pb-0.5">
                             {item.label}
@@ -233,7 +245,16 @@ export const Sidebar = ({
                       >
                         {({ isActive }) => (
                           <>
-                            <Icon className="text-base" />
+                            {collapsed ? (
+                              <span className="relative inline-flex items-center pb-0.5">
+                                <Icon className="text-base" />
+                                <span
+                                  className={`pointer-events-none absolute -bottom-0.5 left-1/2 h-0.5 -translate-x-1/2 rounded-full transition-all duration-300 ${accentIconLineClass(item.accent, isActive)}`}
+                                />
+                              </span>
+                            ) : (
+                              <Icon className="text-base" />
+                            )}
                             {!collapsed && (
                               <span className="relative truncate pb-0.5">
                                 {item.label}

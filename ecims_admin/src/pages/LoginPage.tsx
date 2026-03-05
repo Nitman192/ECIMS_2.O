@@ -1,25 +1,46 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { bindAuthHandlers } from '../api/client';
+import { api } from '../api/client';
 import { AuthApi } from '../api/services';
+import { getApiErrorMessage } from '../api/utils';
 import { useAuth } from '../store/AuthContext';
+import type { User } from '../types';
+
+type LoginLocationState = {
+  reason?: 'session-timeout' | 'session-expired';
+  from?: string;
+};
 
 export const LoginPage = () => {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('admin123');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { setSession, clearSession } = useAuth();
+  const { setSession } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
+  const locationState = useMemo(
+    () => (location.state as LoginLocationState | null) ?? null,
+    [location.state],
+  );
+
   const timeoutNotice = useMemo(() => {
-    const state = location.state as { reason?: string } | null;
-    if (state?.reason === 'session-timeout') {
+    if (locationState?.reason === 'session-timeout') {
       return 'Session timed out due to inactivity. Please sign in again.';
     }
+
+    if (locationState?.reason === 'session-expired') {
+      return 'Session expired or unauthorized. Please sign in again.';
+    }
+
     return null;
-  }, [location.state]);
+  }, [locationState]);
+
+  const redirectPath = useMemo(() => {
+    if (!locationState?.from || locationState.from === '/login') return '/';
+    return locationState.from;
+  }, [locationState]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -27,27 +48,20 @@ export const LoginPage = () => {
     setError(null);
 
     try {
-      const loginRes = await AuthApi.login(username, password);
+      const loginRes = await AuthApi.login(username.trim(), password);
       const token = loginRes.data.access_token;
-
-      bindAuthHandlers(
-        () => token,
-        () => {
-          clearSession();
-          navigate('/login', { replace: true });
-        },
-      );
-
-      const me = await AuthApi.me();
+      const me = await api.get<User>('/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setSession(token, me.data);
 
-      if (me.data.must_reset_password) {
+      if (me.data.must_reset_password || loginRes.data.must_reset_password) {
         navigate('/auth/reset-password', { replace: true });
       } else {
-        navigate('/', { replace: true });
+        navigate(redirectPath, { replace: true });
       }
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Login failed');
+    } catch (err: unknown) {
+      setError(getApiErrorMessage(err, 'Login failed'));
     } finally {
       setLoading(false);
     }
@@ -69,16 +83,20 @@ export const LoginPage = () => {
           )}
           <input
             className="input"
+            autoComplete="username"
             value={username}
             onChange={(event) => setUsername(event.target.value)}
             placeholder="Username"
+            required
           />
           <input
             className="input"
             type="password"
+            autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Password"
+            required
           />
           {error && <p className="text-sm text-rose-400">{error}</p>}
           <button type="submit" className="btn-primary w-full" disabled={loading}>

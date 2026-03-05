@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FiRefreshCw, FiSearch } from 'react-icons/fi';
 import { CoreApi } from '../api/services';
+import { getApiErrorMessage, normalizeListResponse } from '../api/utils';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -34,17 +35,6 @@ const columns: DataTableColumn<Agent>[] = [
   },
 ];
 
-const normalizeAgents = (payload: unknown): Agent[] => {
-  if (Array.isArray(payload)) return payload as Agent[];
-  if (payload && typeof payload === 'object') {
-    const obj = payload as Record<string, unknown>;
-    if (Array.isArray(obj.results)) return obj.results as Agent[];
-    if (Array.isArray(obj.items)) return obj.items as Agent[];
-    if (Array.isArray(obj.data)) return obj.data as Agent[];
-  }
-  return [];
-};
-
 export const AgentsPage = () => {
   const [rows, setRows] = useState<Agent[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -57,10 +47,10 @@ export const AgentsPage = () => {
     setErrorMessage('');
     try {
       const response = await CoreApi.agents();
-      setRows(normalizeAgents(response.data));
+      setRows(normalizeListResponse<Agent>(response.data));
       setStatus('ready');
-    } catch (error: any) {
-      setErrorMessage(error?.response?.data?.detail || error?.message || 'Unable to load agents');
+    } catch (error: unknown) {
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load agents'));
       setStatus('error');
     }
   };

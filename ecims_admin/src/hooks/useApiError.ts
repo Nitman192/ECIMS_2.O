@@ -1,13 +1,14 @@
 import { useState } from 'react';
+import { getApiErrorMessage } from '../api/utils';
 
 export const useApiError = () => {
   const [error, setError] = useState<string | null>(null);
-  const wrap = async <T,>(fn: () => Promise<T>): Promise<T | null> => {
+  const wrap = async <T,>(fn: () => Promise<T>, fallback = 'Request failed'): Promise<T | null> => {
     try {
       setError(null);
       return await fn();
-    } catch (e: any) {
-      setError(e?.response?.data?.detail || e?.message || 'Request failed');
+    } catch (e: unknown) {
+      setError(getApiErrorMessage(e, fallback));
       return null;
     }
   };

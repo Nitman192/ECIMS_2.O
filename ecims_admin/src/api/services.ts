@@ -1,6 +1,7 @@
 import { api } from './client';
 import type {
   AdminUserActivePayload,
+  AdminMetricsResponse,
   AdminUserCreatePayload,
   AdminUserResetPasswordPayload,
   AdminUserRolePayload,
@@ -77,7 +78,7 @@ export const AuthApi = {
 };
 
 export const CoreApi = {
-  metrics: () => api.get('/admin/metrics'),
+  metrics: () => api.get<AdminMetricsResponse>('/admin/metrics'),
   deviceRolloutStatus: () => api.get<DeviceRolloutStatusResponse>('/admin/device/rollout/status'),
   fleetDrift: () => api.get<FleetDriftResponse>('/admin/device/fleet/drift'),
   agents: () => api.get<Agent[]>('/agents'),

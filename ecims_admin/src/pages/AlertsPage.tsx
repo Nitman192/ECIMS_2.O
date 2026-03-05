@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FiRefreshCw, FiSearch } from 'react-icons/fi';
 import { CoreApi } from '../api/services';
+import { getApiErrorMessage, normalizeListResponse } from '../api/utils';
 import { DataTable, type DataTableColumn } from '../components/DataTable';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -30,17 +31,6 @@ const columns: DataTableColumn<Alert>[] = [
   { key: 'status', header: 'Status' },
 ];
 
-const normalizeAlerts = (payload: unknown): Alert[] => {
-  if (Array.isArray(payload)) return payload as Alert[];
-  if (payload && typeof payload === 'object') {
-    const obj = payload as Record<string, unknown>;
-    if (Array.isArray(obj.results)) return obj.results as Alert[];
-    if (Array.isArray(obj.items)) return obj.items as Alert[];
-    if (Array.isArray(obj.data)) return obj.data as Alert[];
-  }
-  return [];
-};
-
 export const AlertsPage = () => {
   const [rows, setRows] = useState<Alert[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -53,10 +43,10 @@ export const AlertsPage = () => {
     setErrorMessage('');
     try {
       const response = await CoreApi.alerts();
-      setRows(normalizeAlerts(response.data));
+      setRows(normalizeListResponse<Alert>(response.data));
       setStatus('ready');
-    } catch (error: any) {
-      setErrorMessage(error?.response?.data?.detail || error?.message || 'Unable to load alerts');
+    } catch (error: unknown) {
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load alerts'));
       setStatus('error');
     }
   };
