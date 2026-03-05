@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FiCalendar, FiClock, FiEye, FiPause, FiPlay, FiPlus, FiRefreshCw, FiSearch, FiShield } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage, normalizeListResponse } from '../../api/utils';
+import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -49,9 +52,6 @@ const modeOptions: Array<{ value: MaintenanceOrchestrationMode; label: string; d
   { value: 'POLICY_PUSH_ONLY', label: 'Policy Push Only', description: 'single policy push stage' },
 ];
 
-const makeIdempotencyKey = () => `sched-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
-
 type CreateForm = {
   windowName: string;
   timezone: string;
@@ -68,6 +68,15 @@ type CreateForm = {
   idempotencyKey: string;
 };
 
+type CreateFormErrors = {
+  windowName?: string;
+  durationMinutes?: string;
+  weeklyDays?: string;
+  targetAgentIds?: string;
+  reason?: string;
+  idempotencyKey?: string;
+};
+
 const defaultForm: CreateForm = {
   windowName: '',
   timezone: 'UTC',
@@ -81,7 +90,7 @@ const defaultForm: CreateForm = {
   reasonCode: 'MAINTENANCE',
   reason: '',
   allowConflicts: false,
-  idempotencyKey: makeIdempotencyKey(),
+  idempotencyKey: createIdempotencyKey('sched'),
 };
 
 const modeLabel = (value: string) => modeOptions.find((item) => item.value === value)?.label || value;
@@ -106,6 +115,7 @@ export const SchedulesPage = () => {
   const [createBusy, setCreateBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [form, setForm] = useState<CreateForm>(defaultForm);
+  const [formErrors, setFormErrors] = useState<CreateFormErrors>({});
   const [previewRuns, setPreviewRuns] = useState<Array<{ run_at_local: string; window_end_local: string }>>([]);
   const [previewConflicts, setPreviewConflicts] = useState<MaintenanceScheduleConflict[]>([]);
 
@@ -126,7 +136,7 @@ export const SchedulesPage = () => {
   const loadAgents = async () => {
     try {
       const response = await CoreApi.agents();
-      setAgents(response.data ?? []);
+      setAgents(normalizeListResponse<Agent>(response.data));
     } catch {
       setAgents([]);
     }
@@ -139,14 +149,14 @@ export const SchedulesPage = () => {
       const response = await CoreApi.listSchedules({
         page: 1,
         page_size: 100,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        timezone: timezoneFilter !== 'all' ? timezoneFilter : undefined,
-        q: query.trim() ? query.trim() : undefined,
+        status: toOptionalFilter(statusFilter),
+        timezone: toOptionalFilter(timezoneFilter),
+        q: toOptionalQuery(query),
       });
       setSchedules(response.data.items ?? []);
       setStatus('ready');
-    } catch (error: any) {
-      setErrorMessage(parseError(error, 'Unable to load maintenance schedules'));
+    } catch (error: unknown) {
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load maintenance schedules'));
       setStatus('error');
     }
   };
@@ -158,10 +168,34 @@ export const SchedulesPage = () => {
   const sortedAgents = useMemo(() => [...agents].sort((a, b) => a.id - b.id), [agents]);
 
   const openCreate = () => {
-    setForm({ ...defaultForm, idempotencyKey: makeIdempotencyKey() });
+    setForm({ ...defaultForm, idempotencyKey: createIdempotencyKey('sched') });
+    setFormErrors({});
     setPreviewRuns([]);
     setPreviewConflicts([]);
     setCreateOpen(true);
+  };
+
+  const validateForm = (strict = false): CreateFormErrors => {
+    const nextErrors: CreateFormErrors = {};
+    if (form.windowName.trim().length < 3) {
+      nextErrors.windowName = 'Window name must be at least 3 characters.';
+    }
+    if (form.durationMinutes < 15 || form.durationMinutes > 1440) {
+      nextErrors.durationMinutes = 'Duration must be between 15 and 1440 minutes.';
+    }
+    if (!form.targetAgentIds.length) {
+      nextErrors.targetAgentIds = 'Select at least one target agent.';
+    }
+    if (form.recurrence === 'WEEKLY' && form.weeklyDays.length === 0) {
+      nextErrors.weeklyDays = 'Select at least one weekday for weekly recurrence.';
+    }
+    if (strict) {
+      if (form.reason.trim().length < 5) {
+        nextErrors.reason = 'Reason should be at least 5 characters.';
+      }
+      nextErrors.idempotencyKey = validateIdempotencyKey(form.idempotencyKey, { minLength: 8 });
+    }
+    return nextErrors;
   };
 
   const toggleWeeklyDay = (day: number) => {
@@ -185,16 +219,16 @@ export const SchedulesPage = () => {
   };
 
   const previewSchedule = async () => {
-    if (!form.windowName.trim()) {
-      pushToast({ title: 'Window name is required', tone: 'warning' });
-      return;
-    }
-    if (form.targetAgentIds.length === 0) {
-      pushToast({ title: 'Select at least one target agent', tone: 'warning' });
-      return;
-    }
-    if (form.recurrence === 'WEEKLY' && !form.weeklyDays.length) {
-      pushToast({ title: 'Weekly recurrence requires weekday selection', tone: 'warning' });
+    const nextErrors = validateForm(false);
+    setFormErrors((prev) => ({
+      ...prev,
+      windowName: nextErrors.windowName,
+      durationMinutes: nextErrors.durationMinutes,
+      weeklyDays: nextErrors.weeklyDays,
+      targetAgentIds: nextErrors.targetAgentIds,
+    }));
+    if (Object.keys(nextErrors).length > 0) {
+      pushToast({ title: 'Validation failed', description: 'Fix highlighted fields before preview.', tone: 'warning' });
       return;
     }
     setPreviewBusy(true);
@@ -222,10 +256,10 @@ export const SchedulesPage = () => {
         description: `${response.data.next_runs?.length ?? 0} upcoming runs, ${response.data.conflict_count ?? 0} conflicts`,
         tone: 'info',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Preview failed',
-        description: parseError(error, 'Unable to preview schedule'),
+        description: getApiErrorMessage(error, 'Unable to preview schedule'),
         tone: 'error',
       });
     } finally {
@@ -234,20 +268,10 @@ export const SchedulesPage = () => {
   };
 
   const createSchedule = async () => {
-    if (!form.windowName.trim()) {
-      pushToast({ title: 'Window name is required', tone: 'warning' });
-      return;
-    }
-    if (form.reason.trim().length < 5) {
-      pushToast({ title: 'Reason should be at least 5 characters', tone: 'warning' });
-      return;
-    }
-    if (!form.targetAgentIds.length) {
-      pushToast({ title: 'Select at least one target agent', tone: 'warning' });
-      return;
-    }
-    if (form.recurrence === 'WEEKLY' && !form.weeklyDays.length) {
-      pushToast({ title: 'Weekly recurrence requires weekday selection', tone: 'warning' });
+    const nextErrors = validateForm(true);
+    setFormErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      pushToast({ title: 'Validation failed', description: 'Fix highlighted fields before create.', tone: 'warning' });
       return;
     }
 
@@ -276,10 +300,10 @@ export const SchedulesPage = () => {
         description: `Schedule #${response.data.item.id} saved`,
         tone: response.data.created ? 'success' : 'info',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Create schedule failed',
-        description: parseError(error, 'Unable to create schedule'),
+        description: getApiErrorMessage(error, 'Unable to create schedule'),
         tone: 'error',
       });
     } finally {
@@ -296,10 +320,10 @@ export const SchedulesPage = () => {
         description: `Due: ${response.data.due_count}, executed: ${response.data.executed_count}, failed: ${response.data.failed_count}`,
         tone: response.data.failed_count > 0 ? 'warning' : 'success',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Runner failed',
-        description: parseError(error, 'Unable to run due schedules'),
+        description: getApiErrorMessage(error, 'Unable to run due schedules'),
         tone: 'error',
       });
     }
@@ -313,10 +337,10 @@ export const SchedulesPage = () => {
       });
       await loadSchedules();
       pushToast({ title: `Schedule ${nextStatus.toLowerCase()}`, tone: 'success' });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'State update failed',
-        description: parseError(error, 'Unable to update schedule state'),
+        description: getApiErrorMessage(error, 'Unable to update schedule state'),
         tone: 'error',
       });
     }
@@ -330,10 +354,10 @@ export const SchedulesPage = () => {
     try {
       const response = await CoreApi.getScheduleConflicts(row.id);
       setConflictsRows(response.data.conflicts ?? []);
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Unable to load conflicts',
-        description: parseError(error, 'Conflict fetch failed'),
+        description: getApiErrorMessage(error, 'Conflict fetch failed'),
         tone: 'error',
       });
     } finally {
@@ -486,11 +510,10 @@ export const SchedulesPage = () => {
         title="Create Maintenance Schedule"
         description="Define schedule policy, target fleet, conflict policy, and preview next runs before saving."
         confirmLabel={createBusy ? 'Saving...' : 'Create Schedule'}
+        confirmDisabled={createBusy || previewBusy}
         cancelLabel="Cancel"
-        onCancel={() => {
-          if (createBusy || previewBusy) return;
-          setCreateOpen(false);
-        }}
+        cancelDisabled={createBusy || previewBusy}
+        onCancel={() => setCreateOpen(false)}
         onConfirm={() => void createSchedule()}
       >
         <div className="space-y-3">
@@ -498,13 +521,21 @@ export const SchedulesPage = () => {
             className="input"
             placeholder="Window name"
             value={form.windowName}
-            onChange={(event) => setForm((prev) => ({ ...prev, windowName: event.target.value }))}
+            disabled={createBusy || previewBusy}
+            onChange={(event) => {
+              setForm((prev) => ({ ...prev, windowName: event.target.value }));
+              if (formErrors.windowName) {
+                setFormErrors((prev) => ({ ...prev, windowName: undefined }));
+              }
+            }}
           />
+          {formErrors.windowName && <p className="text-xs text-rose-600 dark:text-rose-400">{formErrors.windowName}</p>}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <select
               className="input"
               value={form.timezone}
+              disabled={createBusy || previewBusy}
               onChange={(event) => setForm((prev) => ({ ...prev, timezone: event.target.value }))}
             >
               {timezoneOptions.map((tz) => (
@@ -517,6 +548,7 @@ export const SchedulesPage = () => {
               type="time"
               className="input"
               value={form.startTimeLocal}
+              disabled={createBusy || previewBusy}
               onChange={(event) => setForm((prev) => ({ ...prev, startTimeLocal: event.target.value }))}
             />
           </div>
@@ -528,18 +560,26 @@ export const SchedulesPage = () => {
               min={15}
               max={1440}
               value={form.durationMinutes}
-              onChange={(event) => setForm((prev) => ({ ...prev, durationMinutes: Number(event.target.value) || 60 }))}
+              disabled={createBusy || previewBusy}
+              onChange={(event) => {
+                setForm((prev) => ({ ...prev, durationMinutes: Number(event.target.value) || 60 }));
+                if (formErrors.durationMinutes) {
+                  setFormErrors((prev) => ({ ...prev, durationMinutes: undefined }));
+                }
+              }}
               placeholder="Duration (minutes)"
             />
             <select
               className="input"
               value={form.recurrence}
+              disabled={createBusy || previewBusy}
               onChange={(event) => setForm((prev) => ({ ...prev, recurrence: event.target.value as MaintenanceScheduleRecurrence }))}
             >
               <option value="DAILY">DAILY</option>
               <option value="WEEKLY">WEEKLY</option>
             </select>
           </div>
+          {formErrors.durationMinutes && <p className="text-xs text-rose-600 dark:text-rose-400">{formErrors.durationMinutes}</p>}
 
           {form.recurrence === 'WEEKLY' && (
             <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900">
@@ -549,6 +589,7 @@ export const SchedulesPage = () => {
                   <button
                     key={day.value}
                     type="button"
+                    disabled={createBusy || previewBusy}
                     className={`rounded-lg px-2 py-1 text-xs font-semibold transition ${
                       selected
                         ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300'
@@ -562,10 +603,12 @@ export const SchedulesPage = () => {
               })}
             </div>
           )}
+          {formErrors.weeklyDays && <p className="text-xs text-rose-600 dark:text-rose-400">{formErrors.weeklyDays}</p>}
 
           <select
             className="input"
             value={form.orchestrationMode}
+            disabled={createBusy || previewBusy}
             onChange={(event) =>
               setForm((prev) => ({ ...prev, orchestrationMode: event.target.value as MaintenanceOrchestrationMode }))
             }
@@ -581,6 +624,7 @@ export const SchedulesPage = () => {
             <select
               className="input"
               value={form.status}
+              disabled={createBusy || previewBusy}
               onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value as MaintenanceScheduleStatus }))}
             >
               <option value="ACTIVE">ACTIVE</option>
@@ -590,6 +634,7 @@ export const SchedulesPage = () => {
             <select
               className="input"
               value={form.reasonCode}
+              disabled={createBusy || previewBusy}
               onChange={(event) =>
                 setForm((prev) => ({ ...prev, reasonCode: event.target.value as (typeof reasonCodes)[number]['value'] }))
               }
@@ -605,16 +650,30 @@ export const SchedulesPage = () => {
           <textarea
             className="input min-h-[84px] resize-y"
             value={form.reason}
-            onChange={(event) => setForm((prev) => ({ ...prev, reason: event.target.value }))}
+            disabled={createBusy || previewBusy}
+            onChange={(event) => {
+              setForm((prev) => ({ ...prev, reason: event.target.value }));
+              if (formErrors.reason) {
+                setFormErrors((prev) => ({ ...prev, reason: undefined }));
+              }
+            }}
             placeholder="Reason (min 5 chars)"
           />
+          {formErrors.reason && <p className="text-xs text-rose-600 dark:text-rose-400">{formErrors.reason}</p>}
 
           <input
             className="input"
             value={form.idempotencyKey}
-            onChange={(event) => setForm((prev) => ({ ...prev, idempotencyKey: event.target.value }))}
+            disabled={createBusy || previewBusy}
+            onChange={(event) => {
+              setForm((prev) => ({ ...prev, idempotencyKey: event.target.value }));
+              if (formErrors.idempotencyKey) {
+                setFormErrors((prev) => ({ ...prev, idempotencyKey: undefined }));
+              }
+            }}
             placeholder="Idempotency key"
           />
+          {formErrors.idempotencyKey && <p className="text-xs text-rose-600 dark:text-rose-400">{formErrors.idempotencyKey}</p>}
 
           <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -624,6 +683,7 @@ export const SchedulesPage = () => {
               <button
                 type="button"
                 className="btn-secondary h-8 px-2 text-xs"
+                disabled={createBusy || previewBusy}
                 onClick={() => setForm((prev) => ({ ...prev, targetAgentIds: agents.filter((a) => a.status === 'ONLINE').map((a) => a.id) }))}
               >
                 Select Online
@@ -636,6 +696,7 @@ export const SchedulesPage = () => {
                   <button
                     key={agent.id}
                     type="button"
+                    disabled={createBusy || previewBusy}
                     onClick={() => toggleTargetAgent(agent.id)}
                     className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs transition ${
                       selected
@@ -652,11 +713,13 @@ export const SchedulesPage = () => {
               })}
             </div>
           </div>
+          {formErrors.targetAgentIds && <p className="text-xs text-rose-600 dark:text-rose-400">{formErrors.targetAgentIds}</p>}
 
           <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
             <input
               type="checkbox"
               checked={form.allowConflicts}
+              disabled={createBusy || previewBusy}
               onChange={(event) => setForm((prev) => ({ ...prev, allowConflicts: event.target.checked }))}
             />
             Allow conflicting schedules (not recommended)

@@ -10,6 +10,8 @@ import {
   FiUsers,
 } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage, normalizeListResponse } from '../../api/utils';
+import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -34,6 +36,13 @@ type ReasonCode =
   | 'EMERGENCY_MITIGATION'
   | 'TESTING';
 
+type IssueValidationErrors = {
+  agentIds?: string;
+  idempotencyKey?: string;
+  reason?: string;
+  highRisk?: string;
+};
+
 const reasonOptions: Array<{ value: ReasonCode; label: string }> = [
   { value: 'MAINTENANCE', label: 'Maintenance' },
   { value: 'POLICY_SYNC', label: 'Policy Sync' },
@@ -50,9 +59,8 @@ const actionOptions: Array<{ value: RemoteActionKind; label: string; isHighRisk:
   { value: 'lockdown', label: 'Lockdown', isHighRisk: true },
 ];
 
-const makeIdempotencyKey = () => `ra-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
+const MIN_REASON_LENGTH = 5;
+const MIN_IDEMPOTENCY_LENGTH = 12;
 
 const actionLabel = (value: string) => {
   if (value === 'policy_push') return 'Policy Push';
@@ -70,6 +78,8 @@ const statusBadgeClass = (value: string) => {
   return 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
 };
 
+const isActionableAgent = (agent: Agent) => !agent.agent_revoked;
+
 export const RemoteActionsPage = () => {
   const [tasks, setTasks] = useState<RemoteActionTask[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -85,8 +95,9 @@ export const RemoteActionsPage = () => {
   const [issueAction, setIssueAction] = useState<RemoteActionKind>('restart');
   const [issueReasonCode, setIssueReasonCode] = useState<ReasonCode>('MAINTENANCE');
   const [issueReason, setIssueReason] = useState('');
-  const [issueIdempotencyKey, setIssueIdempotencyKey] = useState(makeIdempotencyKey);
+  const [issueIdempotencyKey, setIssueIdempotencyKey] = useState(() => createIdempotencyKey('ra'));
   const [issueConfirmHighRisk, setIssueConfirmHighRisk] = useState(false);
+  const [issueErrors, setIssueErrors] = useState<IssueValidationErrors>({});
   const [agentSearch, setAgentSearch] = useState('');
   const [selectedAgentIds, setSelectedAgentIds] = useState<number[]>([]);
 
@@ -112,7 +123,7 @@ export const RemoteActionsPage = () => {
   const loadAgents = async () => {
     try {
       const response = await CoreApi.agents();
-      setAgents(response.data ?? []);
+      setAgents(normalizeListResponse<Agent>(response.data));
     } catch {
       setAgents([]);
     }
@@ -131,8 +142,8 @@ export const RemoteActionsPage = () => {
       });
       setTasks(response.data.items ?? []);
       setTasksStatus('ready');
-    } catch (error: any) {
-      setTasksError(parseError(error, 'Unable to load remote action tasks'));
+    } catch (error: unknown) {
+      setTasksError(getApiErrorMessage(error, 'Unable to load remote action tasks'));
       setTasksStatus('error');
     }
   };
@@ -145,8 +156,9 @@ export const RemoteActionsPage = () => {
     setIssueAction('restart');
     setIssueReasonCode('MAINTENANCE');
     setIssueReason('');
-    setIssueIdempotencyKey(makeIdempotencyKey());
+    setIssueIdempotencyKey(createIdempotencyKey('ra'));
     setIssueConfirmHighRisk(false);
+    setIssueErrors({});
     setAgentSearch('');
     setSelectedAgentIds([]);
   };
@@ -156,45 +168,75 @@ export const RemoteActionsPage = () => {
     setIssueOpen(true);
   };
 
+  const closeIssueModal = () => {
+    if (issueBusy) return;
+    setIssueOpen(false);
+  };
+
+  const actionableAgents = useMemo(
+    () => agents.filter((agent) => isActionableAgent(agent)),
+    [agents],
+  );
+
   const filteredAgents = useMemo(() => {
     const normalized = agentSearch.trim().toLowerCase();
-    if (!normalized) return agents;
-    return agents.filter((agent) => {
+    if (!normalized) return actionableAgents;
+    return actionableAgents.filter((agent) => {
       const haystack = `${agent.id} ${agent.name} ${agent.hostname} ${agent.status}`.toLowerCase();
       return haystack.includes(normalized);
     });
-  }, [agents, agentSearch]);
+  }, [actionableAgents, agentSearch]);
 
   const selectedAction = actionOptions.find((item) => item.value === issueAction);
   const isHighRiskAction = Boolean(selectedAction?.isHighRisk);
+
+  const validateIssueForm = (): IssueValidationErrors => {
+    const nextErrors: IssueValidationErrors = {};
+
+    if (!selectedAgentIds.length) {
+      nextErrors.agentIds = 'Select at least one agent.';
+    }
+
+    const trimmedReason = issueReason.trim();
+    if (trimmedReason.length < MIN_REASON_LENGTH) {
+      nextErrors.reason = `Reason must be at least ${MIN_REASON_LENGTH} characters.`;
+    }
+
+    nextErrors.idempotencyKey = validateIdempotencyKey(issueIdempotencyKey, { minLength: MIN_IDEMPOTENCY_LENGTH });
+
+    if (isHighRiskAction && !issueConfirmHighRisk) {
+      nextErrors.highRisk = 'Explicit confirmation is required for high-risk actions.';
+    }
+
+    return nextErrors;
+  };
 
   const toggleAgent = (agentId: number) => {
     setSelectedAgentIds((prev) =>
       prev.includes(agentId) ? prev.filter((item) => item !== agentId) : [...prev, agentId],
     );
+    if (issueErrors.agentIds) {
+      setIssueErrors((prev) => ({ ...prev, agentIds: undefined }));
+    }
   };
 
   const selectAllOnlineAgents = () => {
-    setSelectedAgentIds(agents.filter((agent) => agent.status === 'ONLINE').map((agent) => agent.id));
+    const online = actionableAgents
+      .filter((agent) => (agent.status || '').toUpperCase() === 'ONLINE')
+      .map((agent) => agent.id);
+    setSelectedAgentIds(online);
+    if (issueErrors.agentIds) {
+      setIssueErrors((prev) => ({ ...prev, agentIds: undefined }));
+    }
   };
 
   const submitIssueAction = async () => {
-    if (!selectedAgentIds.length) {
-      pushToast({ title: 'Select at least one agent', tone: 'warning' });
-      return;
-    }
-    if (issueReason.trim().length < 5) {
+    const nextErrors = validateIssueForm();
+    setIssueErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
       pushToast({
-        title: 'Reason is required',
-        description: 'Provide a reason with at least 5 characters.',
-        tone: 'warning',
-      });
-      return;
-    }
-    if (isHighRiskAction && !issueConfirmHighRisk) {
-      pushToast({
-        title: 'High-risk confirmation required',
-        description: 'Shutdown/Lockdown requires explicit operator confirmation.',
+        title: 'Validation failed',
+        description: 'Fix highlighted fields before issuing remote action.',
         tone: 'warning',
       });
       return;
@@ -222,10 +264,10 @@ export const RemoteActionsPage = () => {
         description: `Task #${response.data.item.id} queued for ${response.data.item.target_count} agents.`,
         tone: response.data.created ? 'success' : 'info',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Issue action failed',
-        description: parseError(error, 'Unable to issue remote action'),
+        description: getApiErrorMessage(error, 'Unable to issue remote action'),
         tone: 'error',
       });
     } finally {
@@ -241,10 +283,10 @@ export const RemoteActionsPage = () => {
       const response = await CoreApi.getRemoteActionTaskTargets(task.id);
       setDetailRows(response.data.items ?? []);
       setDetailStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setDetailRows([]);
       setDetailStatus('error');
-      setDetailError(parseError(error, 'Unable to load task target details'));
+      setDetailError(getApiErrorMessage(error, 'Unable to load task target details'));
     }
   };
 
@@ -422,11 +464,10 @@ export const RemoteActionsPage = () => {
         title="Issue Remote Action"
         description="Create an idempotent task for one or many agents with safe batching and audit reason."
         confirmLabel={issueBusy ? 'Issuing...' : 'Issue Task'}
+        confirmDisabled={issueBusy}
         cancelLabel="Cancel"
-        onCancel={() => {
-          if (issueBusy) return;
-          setIssueOpen(false);
-        }}
+        cancelDisabled={issueBusy}
+        onCancel={closeIssueModal}
         onConfirm={() => void submitIssueAction()}
       >
         <div className="space-y-3">
@@ -434,9 +475,13 @@ export const RemoteActionsPage = () => {
             <select
               className="input"
               value={issueAction}
+              disabled={issueBusy}
               onChange={(event) => {
                 setIssueAction(event.target.value as RemoteActionKind);
                 setIssueConfirmHighRisk(false);
+                if (issueErrors.highRisk) {
+                  setIssueErrors((prev) => ({ ...prev, highRisk: undefined }));
+                }
               }}
             >
               {actionOptions.map((option) => (
@@ -449,6 +494,7 @@ export const RemoteActionsPage = () => {
             <select
               className="input"
               value={issueReasonCode}
+              disabled={issueBusy}
               onChange={(event) => setIssueReasonCode(event.target.value as ReasonCode)}
             >
               {reasonOptions.map((option) => (
@@ -459,29 +505,62 @@ export const RemoteActionsPage = () => {
             </select>
           </div>
 
-          <input
-            className="input"
-            value={issueIdempotencyKey}
-            onChange={(event) => setIssueIdempotencyKey(event.target.value)}
-            placeholder="Idempotency key"
-          />
+          <div>
+            <input
+              className="input"
+              value={issueIdempotencyKey}
+              disabled={issueBusy}
+              onChange={(event) => {
+                setIssueIdempotencyKey(event.target.value);
+                if (issueErrors.idempotencyKey) {
+                  setIssueErrors((prev) => ({ ...prev, idempotencyKey: undefined }));
+                }
+              }}
+              placeholder="Idempotency key"
+            />
+            {issueErrors.idempotencyKey && (
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{issueErrors.idempotencyKey}</p>
+            )}
+          </div>
 
-          <textarea
-            className="input min-h-[84px] resize-y"
-            value={issueReason}
-            onChange={(event) => setIssueReason(event.target.value)}
-            placeholder="Reason (min 5 chars)"
-          />
+          <div>
+            <textarea
+              className="input min-h-[84px] resize-y"
+              value={issueReason}
+              disabled={issueBusy}
+              onChange={(event) => {
+                setIssueReason(event.target.value);
+                if (issueErrors.reason) {
+                  setIssueErrors((prev) => ({ ...prev, reason: undefined }));
+                }
+              }}
+              placeholder="Reason (min 5 chars)"
+            />
+            {issueErrors.reason && (
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{issueErrors.reason}</p>
+            )}
+          </div>
 
           {isHighRiskAction && (
-            <label className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-              <input
-                type="checkbox"
-                checked={issueConfirmHighRisk}
-                onChange={(event) => setIssueConfirmHighRisk(event.target.checked)}
-              />
-              Confirm high-risk action ({actionLabel(issueAction)})
-            </label>
+            <div>
+              <label className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                <input
+                  type="checkbox"
+                  checked={issueConfirmHighRisk}
+                  disabled={issueBusy}
+                  onChange={(event) => {
+                    setIssueConfirmHighRisk(event.target.checked);
+                    if (issueErrors.highRisk) {
+                      setIssueErrors((prev) => ({ ...prev, highRisk: undefined }));
+                    }
+                  }}
+                />
+                Confirm high-risk action ({actionLabel(issueAction)})
+              </label>
+              {issueErrors.highRisk && (
+                <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{issueErrors.highRisk}</p>
+              )}
+            </div>
           )}
 
           <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
@@ -490,11 +569,21 @@ export const RemoteActionsPage = () => {
                 Target Agents ({selectedAgentIds.length} selected)
               </p>
               <div className="flex gap-2">
-                <button type="button" className="btn-secondary h-8 px-2 text-xs" onClick={selectAllOnlineAgents}>
+                <button
+                  type="button"
+                  className="btn-secondary h-8 px-2 text-xs"
+                  onClick={selectAllOnlineAgents}
+                  disabled={issueBusy}
+                >
                   <FiUsers className="mr-1 text-xs" />
                   Select Online
                 </button>
-                <button type="button" className="btn-secondary h-8 px-2 text-xs" onClick={() => setSelectedAgentIds([])}>
+                <button
+                  type="button"
+                  className="btn-secondary h-8 px-2 text-xs"
+                  onClick={() => setSelectedAgentIds([])}
+                  disabled={issueBusy}
+                >
                   Clear
                 </button>
               </div>
@@ -504,6 +593,7 @@ export const RemoteActionsPage = () => {
               <FiSearch className="text-slate-400" />
               <input
                 value={agentSearch}
+                disabled={issueBusy}
                 onChange={(event) => setAgentSearch(event.target.value)}
                 placeholder="Search agent id, name, hostname"
                 className="w-full bg-transparent text-sm text-slate-700 outline-none dark:text-slate-200"
@@ -517,6 +607,7 @@ export const RemoteActionsPage = () => {
                   <button
                     type="button"
                     key={agent.id}
+                    disabled={issueBusy}
                     onClick={() => toggleAgent(agent.id)}
                     className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm transition ${
                       selected
@@ -525,7 +616,7 @@ export const RemoteActionsPage = () => {
                     }`}
                   >
                     <span className="truncate">
-                      #{agent.id} · {agent.name} ({agent.hostname})
+                      #{agent.id} - {agent.name} ({agent.hostname})
                     </span>
                     <span className="ml-2 shrink-0">
                       {selected ? <FiCheckSquare className="text-base" /> : <FiSquare className="text-base" />}
@@ -537,14 +628,22 @@ export const RemoteActionsPage = () => {
                 <p className="py-3 text-center text-xs text-slate-500 dark:text-slate-400">No agents found.</p>
               )}
             </div>
+            {issueErrors.agentIds && (
+              <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{issueErrors.agentIds}</p>
+            )}
           </div>
+
+          <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+            <FiShield className="mr-1 inline text-xs" />
+            Revoked agents are excluded from selection. Use unique idempotency keys to avoid accidental replays.
+          </p>
         </div>
       </Modal>
 
       <Modal
         open={Boolean(detailTask)}
         title={detailTask ? `Task #${detailTask.id} Targets` : 'Task Targets'}
-        description={detailTask ? `${actionLabel(detailTask.action)} · ${detailTask.status}` : undefined}
+        description={detailTask ? `${actionLabel(detailTask.action)} - ${detailTask.status}` : undefined}
         cancelLabel="Close"
         onCancel={() => {
           setDetailTask(null);

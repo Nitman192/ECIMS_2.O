@@ -13,6 +13,9 @@ import {
   FiUpload,
 } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
+import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -51,9 +54,6 @@ const custodyEventOptions: Array<{ value: EvidenceCustodyEventCreatePayload['eve
   { value: 'NOTE_ADDED', label: 'Note Added' },
   { value: 'TRANSFERRED', label: 'Transferred' },
 ];
-
-const makeIdempotencyKey = () => `evidence-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
 
 const statusBadgeClass = (status: string) => {
   if (status === 'SEALED') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300';
@@ -114,7 +114,7 @@ const defaultCreateForm: CreateForm = {
   originRef: '',
   classification: 'INTERNAL',
   reason: '',
-  idempotencyKey: makeIdempotencyKey(),
+  idempotencyKey: createIdempotencyKey('evidence'),
   manifestJson: '{}',
   metadataJson: '{"source":"admin-console"}',
 };
@@ -182,16 +182,16 @@ export const EvidenceVaultPage = () => {
       const response = await CoreApi.listEvidenceVault({
         page: 1,
         page_size: 100,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        origin: originFilter !== 'all' ? originFilter : undefined,
-        q: query.trim() ? query.trim() : undefined,
+        status: toOptionalFilter(statusFilter),
+        origin: toOptionalFilter(originFilter),
+        q: toOptionalQuery(query),
       });
       setRows(response.data.items ?? []);
       setStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setRows([]);
       setStatus('error');
-      setErrorMessage(parseError(error, 'Unable to load evidence vault objects'));
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load evidence vault objects'));
     }
   };
 
@@ -202,7 +202,7 @@ export const EvidenceVaultPage = () => {
   const filteredRows = useMemo(() => rows, [rows]);
 
   const openCreateModal = () => {
-    setCreateForm({ ...defaultCreateForm, idempotencyKey: makeIdempotencyKey() });
+    setCreateForm({ ...defaultCreateForm, idempotencyKey: createIdempotencyKey('evidence') });
     setCreateOpen(true);
   };
 
@@ -214,6 +214,12 @@ export const EvidenceVaultPage = () => {
     }
     if (createForm.reason.trim().length < 5) {
       pushToast({ title: 'Reason should be at least 5 characters', tone: 'warning' });
+      return;
+    }
+    const key = createForm.idempotencyKey.trim();
+    const idempotencyError = validateIdempotencyKey(key, { minLength: 8 });
+    if (idempotencyError) {
+      pushToast({ title: idempotencyError, tone: 'warning' });
       return;
     }
 
@@ -236,7 +242,7 @@ export const EvidenceVaultPage = () => {
         origin_ref: createForm.originRef.trim() || null,
         classification: createForm.classification,
         reason: createForm.reason.trim(),
-        idempotency_key: createForm.idempotencyKey.trim(),
+        idempotency_key: key,
         manifest,
         metadata,
       });
@@ -247,8 +253,8 @@ export const EvidenceVaultPage = () => {
         description: `Evidence ID: ${response.data.item.evidence_id}`,
         tone: response.data.created ? 'success' : 'info',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Create evidence failed', description: parseError(error, 'Unable to register evidence object'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Create evidence failed', description: getApiErrorMessage(error, 'Unable to register evidence object'), tone: 'error' });
     } finally {
       setCreateBusy(false);
     }
@@ -265,8 +271,8 @@ export const EvidenceVaultPage = () => {
       const response = await CoreApi.getEvidenceTimeline(row.evidence_id);
       setTimelineRows(response.data.items ?? []);
       setTimelineChainValid(Boolean(response.data.chain_valid));
-    } catch (error: any) {
-      setTimelineError(parseError(error, 'Unable to load custody timeline'));
+    } catch (error: unknown) {
+      setTimelineError(getApiErrorMessage(error, 'Unable to load custody timeline'));
     } finally {
       setTimelineBusy(false);
     }
@@ -308,8 +314,8 @@ export const EvidenceVaultPage = () => {
         tone: 'success',
       });
       await openTimeline(selectedEvidence);
-    } catch (error: any) {
-      pushToast({ title: 'Append custody event failed', description: parseError(error, 'Unable to append custody event'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Append custody event failed', description: getApiErrorMessage(error, 'Unable to append custody event'), tone: 'error' });
     } finally {
       setCustodyBusy(false);
     }
@@ -341,8 +347,8 @@ export const EvidenceVaultPage = () => {
         tone: 'success',
       });
       await loadEvidence();
-    } catch (error: any) {
-      pushToast({ title: 'Export failed', description: parseError(error, 'Unable to export evidence bundle'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Export failed', description: getApiErrorMessage(error, 'Unable to export evidence bundle'), tone: 'error' });
     } finally {
       setExportBusy(false);
     }
@@ -521,9 +527,10 @@ export const EvidenceVaultPage = () => {
         title="Register Evidence Object"
         description="Create immutable evidence record with canonical hash, origin metadata, and first custody entry."
         confirmLabel={createBusy ? 'Registering...' : 'Register'}
+        confirmDisabled={createBusy}
         cancelLabel="Cancel"
+        cancelDisabled={createBusy}
         onCancel={() => {
-          if (createBusy) return;
           setCreateOpen(false);
         }}
         onConfirm={() => void submitCreateEvidence()}
@@ -639,9 +646,10 @@ export const EvidenceVaultPage = () => {
         title={selectedEvidence ? `Append Custody Event - ${selectedEvidence.evidence_id}` : 'Append Custody Event'}
         description="Add signed chain event for review, transfer, release, or archival actions."
         confirmLabel={custodyBusy ? 'Appending...' : 'Append Event'}
+        confirmDisabled={custodyBusy}
         cancelLabel="Cancel"
+        cancelDisabled={custodyBusy}
         onCancel={() => {
-          if (custodyBusy) return;
           setCustodyOpen(false);
         }}
         onConfirm={() => void submitCustodyEvent()}
@@ -685,9 +693,10 @@ export const EvidenceVaultPage = () => {
         title={selectedEvidence ? `Export Evidence - ${selectedEvidence.evidence_id}` : 'Export Evidence'}
         description="Generate canonical export bundle and append export event to custody chain."
         confirmLabel={exportBusy ? 'Exporting...' : 'Export Bundle'}
+        confirmDisabled={exportBusy}
         cancelLabel="Cancel"
+        cancelDisabled={exportBusy}
         onCancel={() => {
-          if (exportBusy) return;
           setExportOpen(false);
         }}
         onConfirm={() => void submitExport()}

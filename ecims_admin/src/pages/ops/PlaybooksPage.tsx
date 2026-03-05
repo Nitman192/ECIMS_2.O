@@ -10,6 +10,9 @@ import {
   FiXCircle,
 } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage, normalizeListResponse } from '../../api/utils';
+import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -47,8 +50,6 @@ const reasonOptions: Array<{ value: ReasonCode; label: string }> = [
   { value: 'TESTING', label: 'Testing' },
 ];
 
-const makeIdempotencyKey = () => `playbook-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : '-');
 
 const parseJsonObject = (raw: string) => {
@@ -100,7 +101,7 @@ const defaultCreatePlaybookForm: CreatePlaybookForm = {
   riskLevel: 'LOW',
   reasonCode: 'INCIDENT_RESPONSE',
   status: 'ACTIVE',
-  idempotencyKey: makeIdempotencyKey(),
+  idempotencyKey: createIdempotencyKey('playbook'),
   metadataJson: '{"source":"admin-console"}',
 };
 
@@ -154,16 +155,16 @@ export const PlaybooksPage = () => {
       const response = await CoreApi.listPlaybooks({
         page: 1,
         page_size: 100,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        approval_mode: approvalFilter !== 'all' ? approvalFilter : undefined,
-        q: query.trim() ? query.trim() : undefined,
+        status: toOptionalFilter(statusFilter),
+        approval_mode: toOptionalFilter(approvalFilter),
+        q: toOptionalQuery(query),
       });
       setPlaybooks(response.data.items ?? []);
       setPlaybookStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setPlaybooks([]);
       setPlaybookStatus('error');
-      setPlaybookError(parseError(error, 'Unable to load playbooks'));
+      setPlaybookError(getApiErrorMessage(error, 'Unable to load playbooks'));
     }
   };
 
@@ -174,22 +175,22 @@ export const PlaybooksPage = () => {
       const response = await CoreApi.listPlaybookRuns({
         page: 1,
         page_size: 100,
-        status: runStatusFilter !== 'all' ? runStatusFilter : undefined,
-        q: query.trim() ? query.trim() : undefined,
+        status: toOptionalFilter(runStatusFilter),
+        q: toOptionalQuery(query),
       });
       setRuns(response.data.items ?? []);
       setRunStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setRuns([]);
       setRunStatus('error');
-      setRunError(parseError(error, 'Unable to load playbook runs'));
+      setRunError(getApiErrorMessage(error, 'Unable to load playbook runs'));
     }
   };
 
   const loadAgents = async () => {
     try {
       const response = await CoreApi.agents();
-      setAgents(response.data ?? []);
+      setAgents(normalizeListResponse<Agent>(response.data));
     } catch {
       setAgents([]);
     }
@@ -213,7 +214,7 @@ export const PlaybooksPage = () => {
   };
 
   const openCreate = () => {
-    setCreateForm({ ...defaultCreatePlaybookForm, idempotencyKey: makeIdempotencyKey() });
+    setCreateForm({ ...defaultCreatePlaybookForm, idempotencyKey: createIdempotencyKey('playbook') });
     setAgentSearch('');
     setSelectedAgentIds([]);
     setCreateOpen(true);
@@ -224,8 +225,18 @@ export const PlaybooksPage = () => {
       pushToast({ title: 'Playbook name must be at least 3 characters', tone: 'warning' });
       return;
     }
+    if (createForm.description.trim().length < 5) {
+      pushToast({ title: 'Description should be at least 5 characters', tone: 'warning' });
+      return;
+    }
     if (!selectedAgentIds.length) {
       pushToast({ title: 'Select at least one target agent', tone: 'warning' });
+      return;
+    }
+    const key = createForm.idempotencyKey.trim();
+    const idempotencyError = validateIdempotencyKey(key, { minLength: 12 });
+    if (idempotencyError) {
+      pushToast({ title: idempotencyError, tone: 'warning' });
       return;
     }
     let metadata: Record<string, unknown>;
@@ -248,7 +259,7 @@ export const PlaybooksPage = () => {
         risk_level: createForm.riskLevel,
         reason_code: createForm.reasonCode,
         status: createForm.status,
-        idempotency_key: createForm.idempotencyKey.trim(),
+        idempotency_key: key,
         metadata,
       });
       setCreateOpen(false);
@@ -258,8 +269,8 @@ export const PlaybooksPage = () => {
         description: `Playbook ID: ${response.data.item.playbook_id}`,
         tone: response.data.created ? 'success' : 'info',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Create playbook failed', description: parseError(error, 'Unable to create playbook'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Create playbook failed', description: getApiErrorMessage(error, 'Unable to create playbook'), tone: 'error' });
     } finally {
       setCreateBusy(false);
     }
@@ -287,8 +298,8 @@ export const PlaybooksPage = () => {
         description: `Run ${response.data.run_id} status: ${response.data.status}`,
         tone: response.data.status === 'FAILED' ? 'error' : 'success',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Execute playbook failed', description: parseError(error, 'Unable to execute playbook'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Execute playbook failed', description: getApiErrorMessage(error, 'Unable to execute playbook'), tone: 'error' });
     } finally {
       setExecuteBusy(false);
     }
@@ -320,8 +331,8 @@ export const PlaybooksPage = () => {
         description: `Run ${response.data.run_id} now ${response.data.status}`,
         tone: response.data.status === 'FAILED' ? 'error' : 'success',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Run decision failed', description: parseError(error, 'Unable to record decision'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Run decision failed', description: getApiErrorMessage(error, 'Unable to record decision'), tone: 'error' });
     } finally {
       setDecisionBusy(false);
     }
@@ -513,9 +524,10 @@ export const PlaybooksPage = () => {
         title="Create Playbook"
         description="Define trigger, action, approval mode, and target fleet set."
         confirmLabel={createBusy ? 'Creating...' : 'Create Playbook'}
+        confirmDisabled={createBusy}
         cancelLabel="Cancel"
+        cancelDisabled={createBusy}
         onCancel={() => {
-          if (createBusy) return;
           setCreateOpen(false);
         }}
         onConfirm={() => void createPlaybook()}
@@ -524,12 +536,14 @@ export const PlaybooksPage = () => {
           <input
             className="input"
             value={createForm.name}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, name: event.target.value }))}
             placeholder="Playbook name"
           />
           <textarea
             className="input min-h-[72px] resize-y"
             value={createForm.description}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, description: event.target.value }))}
             placeholder="Description"
           />
@@ -537,6 +551,7 @@ export const PlaybooksPage = () => {
             <select
               className="input"
               value={createForm.triggerType}
+              disabled={createBusy}
               onChange={(event) =>
                 setCreateForm((prev) => ({ ...prev, triggerType: event.target.value as PlaybookTriggerType }))
               }
@@ -549,6 +564,7 @@ export const PlaybooksPage = () => {
             <select
               className="input"
               value={createForm.action}
+              disabled={createBusy}
               onChange={(event) => setCreateForm((prev) => ({ ...prev, action: event.target.value as RemoteActionKind }))}
             >
               <option value="restart">Restart</option>
@@ -561,6 +577,7 @@ export const PlaybooksPage = () => {
             <select
               className="input"
               value={createForm.approvalMode}
+              disabled={createBusy}
               onChange={(event) =>
                 setCreateForm((prev) => ({ ...prev, approvalMode: event.target.value as PlaybookApprovalMode }))
               }
@@ -572,6 +589,7 @@ export const PlaybooksPage = () => {
             <select
               className="input"
               value={createForm.riskLevel}
+              disabled={createBusy}
               onChange={(event) => setCreateForm((prev) => ({ ...prev, riskLevel: event.target.value as PlaybookRiskLevel }))}
             >
               <option value="LOW">LOW</option>
@@ -582,6 +600,7 @@ export const PlaybooksPage = () => {
             <select
               className="input"
               value={createForm.reasonCode}
+              disabled={createBusy}
               onChange={(event) => setCreateForm((prev) => ({ ...prev, reasonCode: event.target.value as ReasonCode }))}
             >
               {reasonOptions.map((option) => (
@@ -593,6 +612,7 @@ export const PlaybooksPage = () => {
             <select
               className="input"
               value={createForm.status}
+              disabled={createBusy}
               onChange={(event) => setCreateForm((prev) => ({ ...prev, status: event.target.value as PlaybookStatus }))}
             >
               <option value="ACTIVE">ACTIVE</option>
@@ -603,6 +623,7 @@ export const PlaybooksPage = () => {
           <input
             className="input"
             value={createForm.idempotencyKey}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, idempotencyKey: event.target.value }))}
             placeholder="Idempotency key"
           />
@@ -610,6 +631,7 @@ export const PlaybooksPage = () => {
           <textarea
             className="input min-h-[92px] resize-y font-mono text-xs"
             value={createForm.metadataJson}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, metadataJson: event.target.value }))}
             placeholder="Metadata JSON"
           />
@@ -622,6 +644,7 @@ export const PlaybooksPage = () => {
               <button
                 type="button"
                 className="btn-secondary h-8 px-2 text-xs"
+                disabled={createBusy}
                 onClick={() => setSelectedAgentIds(agents.filter((agent) => agent.status === 'ONLINE').map((agent) => agent.id))}
               >
                 Select Online
@@ -631,6 +654,7 @@ export const PlaybooksPage = () => {
               <FiSearch className="text-slate-400" />
               <input
                 value={agentSearch}
+                disabled={createBusy}
                 onChange={(event) => setAgentSearch(event.target.value)}
                 placeholder="Search agent id, name, hostname"
                 className="w-full bg-transparent text-sm text-slate-700 outline-none dark:text-slate-200"
@@ -643,6 +667,7 @@ export const PlaybooksPage = () => {
                   <button
                     type="button"
                     key={agent.id}
+                    disabled={createBusy}
                     onClick={() => toggleAgent(agent.id)}
                     className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm transition ${
                       selected
@@ -670,9 +695,10 @@ export const PlaybooksPage = () => {
         title={executeTarget ? `Execute ${executeTarget.name}` : 'Execute Playbook'}
         description="Create a run record and dispatch immediately or wait for approvals."
         confirmLabel={executeBusy ? 'Executing...' : 'Execute'}
+        confirmDisabled={executeBusy}
         cancelLabel="Cancel"
+        cancelDisabled={executeBusy}
         onCancel={() => {
-          if (executeBusy) return;
           setExecuteOpen(false);
           setExecuteTarget(null);
         }}
@@ -681,6 +707,7 @@ export const PlaybooksPage = () => {
         <textarea
           className="input min-h-[96px] resize-y"
           value={executeReason}
+          disabled={executeBusy}
           onChange={(event) => setExecuteReason(event.target.value)}
           placeholder="Execution reason (min 5 chars)"
         />
@@ -691,9 +718,10 @@ export const PlaybooksPage = () => {
         title={decisionTarget ? `Run Decision - ${decisionTarget.run_id}` : 'Run Decision'}
         description={`Decision: ${decisionValue}`}
         confirmLabel={decisionBusy ? 'Submitting...' : decisionValue}
+        confirmDisabled={decisionBusy}
         cancelLabel="Cancel"
+        cancelDisabled={decisionBusy}
         onCancel={() => {
-          if (decisionBusy) return;
           setDecisionOpen(false);
           setDecisionTarget(null);
         }}
@@ -702,6 +730,7 @@ export const PlaybooksPage = () => {
         <textarea
           className="input min-h-[96px] resize-y"
           value={decisionReason}
+          disabled={decisionBusy}
           onChange={(event) => setDecisionReason(event.target.value)}
           placeholder="Decision reason (min 5 chars)"
         />

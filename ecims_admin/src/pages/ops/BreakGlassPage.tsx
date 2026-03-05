@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { FiCopy, FiKey, FiPlus, FiRefreshCw, FiSearch, FiShield, FiSlash } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
+import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -11,8 +14,6 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { ToastStack, type ToastItem } from '../../components/ui/Toast';
 import type { BreakGlassScope, BreakGlassSession } from '../../types';
 
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
-const makeIdempotencyKey = () => `breakglass-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : '-');
 
 const parseJsonObject = (raw: string): Record<string, unknown> => {
@@ -45,7 +46,7 @@ const defaultCreateForm: CreateForm = {
   reason: '',
   scope: 'INCIDENT_RESPONSE',
   durationMinutes: 30,
-  idempotencyKey: makeIdempotencyKey(),
+  idempotencyKey: createIdempotencyKey('breakglass'),
   metadataJson: '{"source":"admin-console"}',
 };
 
@@ -86,15 +87,15 @@ export const BreakGlassPage = () => {
       const response = await CoreApi.listBreakGlassSessions({
         page: 1,
         page_size: 100,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        q: query.trim() ? query.trim() : undefined,
+        status: toOptionalFilter(statusFilter),
+        q: toOptionalQuery(query),
       });
       setRows(response.data.items ?? []);
       setStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setRows([]);
       setStatus('error');
-      setErrorMessage(parseError(error, 'Unable to load break-glass sessions'));
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load break-glass sessions'));
     }
   };
 
@@ -103,7 +104,7 @@ export const BreakGlassPage = () => {
   }, []);
 
   const openCreate = () => {
-    setCreateForm({ ...defaultCreateForm, idempotencyKey: makeIdempotencyKey() });
+    setCreateForm({ ...defaultCreateForm, idempotencyKey: createIdempotencyKey('breakglass') });
     setCreateOpen(true);
   };
 
@@ -118,6 +119,12 @@ export const BreakGlassPage = () => {
     }
     if (createForm.durationMinutes < 5 || createForm.durationMinutes > 240) {
       pushToast({ title: 'Duration must be between 5 and 240 minutes', tone: 'warning' });
+      return;
+    }
+    const key = createForm.idempotencyKey.trim();
+    const idempotencyError = validateIdempotencyKey(key, { minLength: 8 });
+    if (idempotencyError) {
+      pushToast({ title: idempotencyError, tone: 'warning' });
       return;
     }
 
@@ -136,7 +143,7 @@ export const BreakGlassPage = () => {
         reason: createForm.reason.trim(),
         scope: createForm.scope,
         duration_minutes: createForm.durationMinutes,
-        idempotency_key: createForm.idempotencyKey.trim(),
+        idempotency_key: key,
         metadata,
       });
       setCreateOpen(false);
@@ -151,8 +158,8 @@ export const BreakGlassPage = () => {
         setResultSessionId(response.data.item.session_id);
         setResultOpen(true);
       }
-    } catch (error: any) {
-      pushToast({ title: 'Start session failed', description: parseError(error, 'Unable to start break-glass session'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Start session failed', description: getApiErrorMessage(error, 'Unable to start break-glass session'), tone: 'error' });
     } finally {
       setCreateBusy(false);
     }
@@ -182,8 +189,8 @@ export const BreakGlassPage = () => {
         description: `Session ${revokeTarget.session_id} moved to REVOKED`,
         tone: 'success',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Revoke failed', description: parseError(error, 'Unable to revoke session'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Revoke failed', description: getApiErrorMessage(error, 'Unable to revoke session'), tone: 'error' });
     } finally {
       setRevokeBusy(false);
     }
@@ -310,9 +317,10 @@ export const BreakGlassPage = () => {
         title="Start Break-glass Session"
         description="Requires current password re-auth and explicit emergency reason."
         confirmLabel={createBusy ? 'Starting...' : 'Start Session'}
+        confirmDisabled={createBusy}
         cancelLabel="Cancel"
+        cancelDisabled={createBusy}
         onCancel={() => {
-          if (createBusy) return;
           setCreateOpen(false);
         }}
         onConfirm={() => void createSession()}
@@ -322,12 +330,14 @@ export const BreakGlassPage = () => {
             type="password"
             className="input"
             value={createForm.currentPassword}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, currentPassword: event.target.value }))}
             placeholder="Current password (re-auth)"
           />
           <textarea
             className="input min-h-[84px] resize-y"
             value={createForm.reason}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, reason: event.target.value }))}
             placeholder="Emergency reason (min 5 chars)"
           />
@@ -335,6 +345,7 @@ export const BreakGlassPage = () => {
             <select
               className="input"
               value={createForm.scope}
+              disabled={createBusy}
               onChange={(event) => setCreateForm((prev) => ({ ...prev, scope: event.target.value as BreakGlassScope }))}
             >
               <option value="INCIDENT_RESPONSE">INCIDENT_RESPONSE</option>
@@ -348,6 +359,7 @@ export const BreakGlassPage = () => {
               max={240}
               className="input"
               value={createForm.durationMinutes}
+              disabled={createBusy}
               onChange={(event) =>
                 setCreateForm((prev) => ({
                   ...prev,
@@ -360,12 +372,14 @@ export const BreakGlassPage = () => {
           <input
             className="input"
             value={createForm.idempotencyKey}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, idempotencyKey: event.target.value }))}
             placeholder="Idempotency key"
           />
           <textarea
             className="input min-h-[96px] resize-y font-mono text-xs"
             value={createForm.metadataJson}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, metadataJson: event.target.value }))}
             placeholder="Metadata JSON"
           />
@@ -377,9 +391,10 @@ export const BreakGlassPage = () => {
         title={revokeTarget ? `Revoke ${revokeTarget.session_id}` : 'Revoke Session'}
         description="Revocation is immediate and audit logged."
         confirmLabel={revokeBusy ? 'Revoking...' : 'Revoke'}
+        confirmDisabled={revokeBusy}
         cancelLabel="Cancel"
+        cancelDisabled={revokeBusy}
         onCancel={() => {
-          if (revokeBusy) return;
           setRevokeOpen(false);
           setRevokeTarget(null);
         }}
@@ -388,6 +403,7 @@ export const BreakGlassPage = () => {
         <textarea
           className="input min-h-[96px] resize-y"
           value={revokeReason}
+          disabled={revokeBusy}
           onChange={(event) => setRevokeReason(event.target.value)}
           placeholder="Revoke reason (min 5 chars)"
         />

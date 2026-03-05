@@ -12,6 +12,9 @@ import {
   FiXCircle,
 } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
+import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -33,9 +36,6 @@ import type {
   StateBackupScope,
 } from '../../types';
 
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
-const makeIdempotencyKey = () => `change-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const makeRestoreIdempotencyKey = () => `restore-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const formatDate = (value?: string | null) => (value ? new Date(value).toLocaleString() : '-');
 
 const parseJsonObject = (raw: string): Record<string, unknown> => {
@@ -90,7 +90,7 @@ const defaultCreateRequestForm: CreateRequestForm = {
   riskLevel: 'LOW',
   reason: '',
   twoPersonRule: false,
-  idempotencyKey: makeIdempotencyKey(),
+  idempotencyKey: createIdempotencyKey('change'),
   proposedJson: '{}',
   metadataJson: '{"source":"admin-console"}',
 };
@@ -156,7 +156,7 @@ export const ChangeControlPage = () => {
   const [restoreApplyOpen, setRestoreApplyOpen] = useState(false);
   const [restoreApplyBusy, setRestoreApplyBusy] = useState(false);
   const [restoreApplyReason, setRestoreApplyReason] = useState('');
-  const [restoreApplyIdempotencyKey, setRestoreApplyIdempotencyKey] = useState(makeRestoreIdempotencyKey());
+  const [restoreApplyIdempotencyKey, setRestoreApplyIdempotencyKey] = useState(createIdempotencyKey('restore'));
   const [restoreApplyConfirm, setRestoreApplyConfirm] = useState(false);
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -176,16 +176,16 @@ export const ChangeControlPage = () => {
       const response = await CoreApi.listChangeRequests({
         page: 1,
         page_size: 100,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        risk: riskFilter !== 'all' ? riskFilter : undefined,
-        q: query.trim() ? query.trim() : undefined,
+        status: toOptionalFilter(statusFilter),
+        risk: toOptionalFilter(riskFilter),
+        q: toOptionalQuery(query),
       });
       setRows(response.data.items ?? []);
       setStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setRows([]);
       setStatus('error');
-      setErrorMessage(parseError(error, 'Unable to load change requests'));
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load change requests'));
     }
   };
 
@@ -196,14 +196,14 @@ export const ChangeControlPage = () => {
       const response = await CoreApi.listStateBackups({
         page: 1,
         page_size: 100,
-        scope: backupScopeFilter !== 'all' ? backupScopeFilter : undefined,
+        scope: toOptionalFilter(backupScopeFilter),
       });
       setBackupRows(response.data.items ?? []);
       setBackupStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setBackupRows([]);
       setBackupStatus('error');
-      setBackupErrorMessage(parseError(error, 'Unable to load backups'));
+      setBackupErrorMessage(getApiErrorMessage(error, 'Unable to load backups'));
     }
   };
 
@@ -212,7 +212,7 @@ export const ChangeControlPage = () => {
   }, []);
 
   const openCreate = () => {
-    setCreateForm({ ...defaultCreateRequestForm, idempotencyKey: makeIdempotencyKey() });
+    setCreateForm({ ...defaultCreateRequestForm, idempotencyKey: createIdempotencyKey('change') });
     setCreateOpen(true);
   };
 
@@ -227,6 +227,12 @@ export const ChangeControlPage = () => {
     }
     if (createForm.reason.trim().length < 5) {
       pushToast({ title: 'Reason should be at least 5 characters', tone: 'warning' });
+      return;
+    }
+    const requestIdempotencyKey = createForm.idempotencyKey.trim();
+    const requestIdempotencyError = validateIdempotencyKey(requestIdempotencyKey, { minLength: 8 });
+    if (requestIdempotencyError) {
+      pushToast({ title: requestIdempotencyError, tone: 'warning' });
       return;
     }
 
@@ -248,7 +254,7 @@ export const ChangeControlPage = () => {
       risk_level: createForm.riskLevel,
       reason: createForm.reason.trim(),
       two_person_rule: createForm.twoPersonRule,
-      idempotency_key: createForm.idempotencyKey.trim(),
+      idempotency_key: requestIdempotencyKey,
       metadata,
     };
 
@@ -262,8 +268,8 @@ export const ChangeControlPage = () => {
         description: `Request ID: ${response.data.item.request_id}`,
         tone: response.data.created ? 'success' : 'info',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Create request failed', description: parseError(error, 'Unable to create request'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Create request failed', description: getApiErrorMessage(error, 'Unable to create request'), tone: 'error' });
     } finally {
       setCreateBusy(false);
     }
@@ -295,8 +301,8 @@ export const ChangeControlPage = () => {
         description: `Request ${response.data.request_id} is now ${response.data.status}`,
         tone: response.data.status === 'REJECTED' ? 'warning' : 'success',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Decision failed', description: parseError(error, 'Unable to decide request'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Decision failed', description: getApiErrorMessage(error, 'Unable to decide request'), tone: 'error' });
     } finally {
       setDecisionBusy(false);
     }
@@ -316,8 +322,8 @@ export const ChangeControlPage = () => {
         description: `Backup ID: ${response.data.backup_id}`,
         tone: 'success',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Backup creation failed', description: parseError(error, 'Unable to create backup'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Backup creation failed', description: getApiErrorMessage(error, 'Unable to create backup'), tone: 'error' });
     } finally {
       setBackupCreateBusy(false);
     }
@@ -330,8 +336,8 @@ export const ChangeControlPage = () => {
     try {
       const response = await CoreApi.getStateBackup(backupId);
       setBackupViewData(response.data);
-    } catch (error: any) {
-      pushToast({ title: 'Load backup failed', description: parseError(error, 'Unable to load backup bundle'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Load backup failed', description: getApiErrorMessage(error, 'Unable to load backup bundle'), tone: 'error' });
       setBackupViewOpen(false);
     } finally {
       setBackupViewBusy(false);
@@ -373,9 +379,9 @@ export const ChangeControlPage = () => {
         description: `${response.data.summary.changed_rows} rows will change across ${response.data.summary.table_count} tables.`,
         tone: 'info',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       setRestorePreviewData(null);
-      pushToast({ title: 'Restore preview failed', description: parseError(error, 'Unable to generate restore preview'), tone: 'error' });
+      pushToast({ title: 'Restore preview failed', description: getApiErrorMessage(error, 'Unable to generate restore preview'), tone: 'error' });
     } finally {
       setRestorePreviewBusy(false);
     }
@@ -387,7 +393,7 @@ export const ChangeControlPage = () => {
       return;
     }
     setRestoreApplyReason('');
-    setRestoreApplyIdempotencyKey(makeRestoreIdempotencyKey());
+    setRestoreApplyIdempotencyKey(createIdempotencyKey('restore'));
     setRestoreApplyConfirm(false);
     setRestoreApplyOpen(true);
   };
@@ -401,8 +407,10 @@ export const ChangeControlPage = () => {
       pushToast({ title: 'Reason should be at least 5 characters', tone: 'warning' });
       return;
     }
-    if (restoreApplyIdempotencyKey.trim().length < 8) {
-      pushToast({ title: 'Idempotency key should be at least 8 characters', tone: 'warning' });
+    const restoreIdempotencyKey = restoreApplyIdempotencyKey.trim();
+    const restoreIdempotencyError = validateIdempotencyKey(restoreIdempotencyKey, { minLength: 8 });
+    if (restoreIdempotencyError) {
+      pushToast({ title: restoreIdempotencyError, tone: 'warning' });
       return;
     }
     if (!restoreApplyConfirm) {
@@ -416,7 +424,7 @@ export const ChangeControlPage = () => {
         tables: restorePreviewData.selected_tables,
         allow_deletes: restorePreviewData.allow_deletes,
         reason: restoreApplyReason.trim(),
-        idempotency_key: restoreApplyIdempotencyKey.trim(),
+        idempotency_key: restoreIdempotencyKey,
         confirm_apply: restoreApplyConfirm,
       });
       setRestoreApplyOpen(false);
@@ -428,8 +436,8 @@ export const ChangeControlPage = () => {
         description: `Restore ID: ${response.data.item.restore_id} | Changed rows: ${response.data.item.result.summary.changed_rows}`,
         tone: response.data.created ? 'success' : 'info',
       });
-    } catch (error: any) {
-      pushToast({ title: 'Restore apply failed', description: parseError(error, 'Unable to apply restore'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Restore apply failed', description: getApiErrorMessage(error, 'Unable to apply restore'), tone: 'error' });
     } finally {
       setRestoreApplyBusy(false);
     }
@@ -672,9 +680,10 @@ export const ChangeControlPage = () => {
         title="Submit Change Request"
         description="Define target, risk, and proposed config for approval workflow."
         confirmLabel={createBusy ? 'Submitting...' : 'Submit Request'}
+        confirmDisabled={createBusy}
         cancelLabel="Cancel"
+        cancelDisabled={createBusy}
         onCancel={() => {
-          if (createBusy) return;
           setCreateOpen(false);
         }}
         onConfirm={() => void createRequest()}
@@ -762,9 +771,10 @@ export const ChangeControlPage = () => {
         title={decisionTarget ? `Request Decision - ${decisionTarget.request_id}` : 'Request Decision'}
         description={`Decision: ${decisionValue}`}
         confirmLabel={decisionBusy ? 'Submitting...' : decisionValue}
+        confirmDisabled={decisionBusy}
         cancelLabel="Cancel"
+        cancelDisabled={decisionBusy}
         onCancel={() => {
-          if (decisionBusy) return;
           setDecisionOpen(false);
           setDecisionTarget(null);
         }}
@@ -783,9 +793,10 @@ export const ChangeControlPage = () => {
         title="Create State Backup"
         description="Generate point-in-time snapshot for rollback readiness."
         confirmLabel={backupCreateBusy ? 'Creating...' : 'Create Snapshot'}
+        confirmDisabled={backupCreateBusy}
         cancelLabel="Cancel"
+        cancelDisabled={backupCreateBusy}
         onCancel={() => {
-          if (backupCreateBusy) return;
           setBackupCreateOpen(false);
         }}
         onConfirm={() => void createBackup()}
@@ -844,9 +855,10 @@ export const ChangeControlPage = () => {
         title={restorePreviewForm.backupId ? `Restore Preview - ${restorePreviewForm.backupId}` : 'Restore Preview'}
         description="Preview table-level impact before applying snapshot restore."
         confirmLabel="Open Apply"
+        confirmDisabled={restorePreviewBusy}
         cancelLabel="Close"
+        cancelDisabled={restorePreviewBusy}
         onCancel={() => {
-          if (restorePreviewBusy) return;
           setRestorePreviewOpen(false);
           setRestorePreviewData(null);
         }}
@@ -897,9 +909,10 @@ export const ChangeControlPage = () => {
         title={restorePreviewData ? `Apply Restore - ${restorePreviewData.backup_id}` : 'Apply Restore'}
         description="Final confirmation for snapshot restore apply."
         confirmLabel={restoreApplyBusy ? 'Applying...' : 'Apply Restore'}
+        confirmDisabled={restoreApplyBusy}
         cancelLabel="Cancel"
+        cancelDisabled={restoreApplyBusy}
         onCancel={() => {
-          if (restoreApplyBusy) return;
           setRestoreApplyOpen(false);
         }}
         onConfirm={() => void applyRestore()}

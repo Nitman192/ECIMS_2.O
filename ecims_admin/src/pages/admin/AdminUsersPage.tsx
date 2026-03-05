@@ -1,6 +1,7 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FiKey, FiRefreshCw, FiSearch, FiTrash2, FiUserPlus, FiUserX } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -14,6 +15,11 @@ import type { AdminUserCreatePayload, User } from '../../types';
 
 type Role = 'ADMIN' | 'ANALYST' | 'VIEWER';
 
+type CreateValidationErrors = {
+  username?: string;
+  password?: string;
+};
+
 const roleOptions: Role[] = ['ADMIN', 'ANALYST', 'VIEWER'];
 
 const defaultCreateForm: AdminUserCreatePayload = {
@@ -22,6 +28,27 @@ const defaultCreateForm: AdminUserCreatePayload = {
   role: 'ANALYST',
   is_active: true,
   must_reset_password: true,
+};
+
+const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,64}$/;
+const PASSWORD_MIN_LENGTH = 12;
+
+const validateUsername = (username: string): string | null => {
+  if (!username) return 'Username is required.';
+  if (!USERNAME_PATTERN.test(username)) {
+    return 'Username must be 3-64 chars and use only letters, numbers, dot, underscore, or hyphen.';
+  }
+  return null;
+};
+
+const validateTemporaryPassword = (password: string): string | null => {
+  if (password.length < PASSWORD_MIN_LENGTH) {
+    return `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`;
+  }
+  if (!/[a-zA-Z]/.test(password) || !/\d/.test(password)) {
+    return 'Password must include at least one letter and one number.';
+  }
+  return null;
 };
 
 export const AdminUsersPage = () => {
@@ -38,14 +65,18 @@ export const AdminUsersPage = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<AdminUserCreatePayload>(defaultCreateForm);
   const [createBusy, setCreateBusy] = useState(false);
+  const [createErrors, setCreateErrors] = useState<CreateValidationErrors>({});
 
   const [resetTarget, setResetTarget] = useState<User | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [resetMustReset, setResetMustReset] = useState(true);
   const [resetBusy, setResetBusy] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [actionBusyUserId, setActionBusyUserId] = useState<number | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -69,8 +100,8 @@ export const AdminUsersPage = () => {
       const response = await CoreApi.listUsers(true);
       setRows(response.data);
       setStatus('ready');
-    } catch (error: any) {
-      setErrorMessage(error?.response?.data?.detail || error?.message || 'Unable to load users');
+    } catch (error: unknown) {
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load users'));
       setStatus('error');
     }
   };
@@ -96,16 +127,59 @@ export const AdminUsersPage = () => {
     });
   }, [rows, query, roleFilter, statusFilter]);
 
+  const openCreateModal = () => {
+    setCreateForm(defaultCreateForm);
+    setCreateErrors({});
+    setCreateOpen(true);
+  };
+
+  const openResetModal = (target: User) => {
+    setResetTarget(target);
+    setResetPassword('');
+    setResetMustReset(true);
+    setResetError(null);
+  };
+
+  const openDeleteModal = (target: User) => {
+    setDeleteTarget(target);
+    setDeleteConfirmText('');
+    setDeleteError(null);
+  };
+
+  const closeCreateModal = () => {
+    if (createBusy) return;
+    setCreateOpen(false);
+    setCreateForm(defaultCreateForm);
+    setCreateErrors({});
+  };
+
+  const closeResetModal = () => {
+    if (resetBusy) return;
+    setResetTarget(null);
+    setResetPassword('');
+    setResetMustReset(true);
+    setResetError(null);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleteBusy) return;
+    setDeleteTarget(null);
+    setDeleteConfirmText('');
+    setDeleteError(null);
+  };
+
   const updateRole = async (target: User, role: Role) => {
+    if (target.role === role) return;
+
     setActionBusyUserId(target.id);
     try {
       await CoreApi.updateUserRole(target.id, { role });
       setRows((prev) => prev.map((row) => (row.id === target.id ? { ...row, role } : row)));
       pushToast({ title: 'Role updated', tone: 'success' });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Role update failed',
-        description: error?.response?.data?.detail || error?.message || 'Request failed',
+        description: getApiErrorMessage(error, 'Request failed'),
         tone: 'error',
       });
       await loadUsers();
@@ -128,10 +202,10 @@ export const AdminUsersPage = () => {
         title: target.is_active ? 'User disabled' : 'User enabled',
         tone: 'success',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Status update failed',
-        description: error?.response?.data?.detail || error?.message || 'Request failed',
+        description: getApiErrorMessage(error, 'Request failed'),
         tone: 'error',
       });
       await loadUsers();
@@ -141,12 +215,27 @@ export const AdminUsersPage = () => {
   };
 
   const submitCreateUser = async () => {
-    if (!createForm.username.trim()) {
-      pushToast({ title: 'Username is required', tone: 'warning' });
-      return;
+    const normalizedUsername = createForm.username.trim();
+    const nextErrors: CreateValidationErrors = {};
+
+    const usernameError = validateUsername(normalizedUsername);
+    if (usernameError) {
+      nextErrors.username = usernameError;
     }
-    if (createForm.password.length < 12) {
-      pushToast({ title: 'Password must be at least 12 chars', tone: 'warning' });
+
+    const passwordError = validateTemporaryPassword(createForm.password);
+    if (passwordError) {
+      nextErrors.password = passwordError;
+    }
+
+    setCreateErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) {
+      pushToast({
+        title: 'Validation failed',
+        description: 'Fix highlighted fields before creating user.',
+        tone: 'warning',
+      });
       return;
     }
 
@@ -154,16 +243,17 @@ export const AdminUsersPage = () => {
     try {
       const response = await CoreApi.createUser({
         ...createForm,
-        username: createForm.username.trim(),
+        username: normalizedUsername,
       });
       setRows((prev) => [...prev, response.data]);
       setCreateOpen(false);
       setCreateForm(defaultCreateForm);
+      setCreateErrors({});
       pushToast({ title: 'User created', tone: 'success' });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Create user failed',
-        description: error?.response?.data?.detail || error?.message || 'Request failed',
+        description: getApiErrorMessage(error, 'Request failed'),
         tone: 'error',
       });
     } finally {
@@ -173,8 +263,15 @@ export const AdminUsersPage = () => {
 
   const submitResetPassword = async () => {
     if (!resetTarget) return;
-    if (resetPassword.length < 12) {
-      pushToast({ title: 'Password must be at least 12 chars', tone: 'warning' });
+
+    const passwordError = validateTemporaryPassword(resetPassword);
+    setResetError(passwordError);
+    if (passwordError) {
+      pushToast({
+        title: 'Validation failed',
+        description: passwordError,
+        tone: 'warning',
+      });
       return;
     }
 
@@ -193,11 +290,12 @@ export const AdminUsersPage = () => {
       setResetTarget(null);
       setResetPassword('');
       setResetMustReset(true);
+      setResetError(null);
       pushToast({ title: 'Password reset issued', tone: 'success' });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Reset password failed',
-        description: error?.response?.data?.detail || error?.message || 'Request failed',
+        description: getApiErrorMessage(error, 'Request failed'),
         tone: 'error',
       });
     } finally {
@@ -207,16 +305,26 @@ export const AdminUsersPage = () => {
 
   const submitDeleteUser = async () => {
     if (!deleteTarget) return;
+
+    if (deleteConfirmText.trim() !== deleteTarget.username) {
+      const message = 'Type the exact username to confirm deletion.';
+      setDeleteError(message);
+      pushToast({ title: 'Delete confirmation required', description: message, tone: 'warning' });
+      return;
+    }
+
     setDeleteBusy(true);
     try {
       await CoreApi.deleteUser(deleteTarget.id, 'Deleted from admin console');
       setRows((prev) => prev.filter((row) => row.id !== deleteTarget.id));
       setDeleteTarget(null);
+      setDeleteConfirmText('');
+      setDeleteError(null);
       pushToast({ title: 'User deleted', tone: 'success' });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Delete failed',
-        description: error?.response?.data?.detail || error?.message || 'Request failed',
+        description: getApiErrorMessage(error, 'Request failed'),
         tone: 'error',
       });
     } finally {
@@ -232,9 +340,10 @@ export const AdminUsersPage = () => {
       render: (row) => (
         <select
           value={row.role}
-          disabled={actionBusyUserId === row.id}
+          disabled={actionBusyUserId === row.id || row.id === currentUser?.id}
           onChange={(event) => void updateRole(row, event.target.value as Role)}
           className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 outline-none transition focus:border-cyan-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:border-cyan-400"
+          title={row.id === currentUser?.id ? 'Cannot change own role in this view' : undefined}
         >
           {roleOptions.map((option) => (
             <option key={option} value={option}>
@@ -291,11 +400,7 @@ export const AdminUsersPage = () => {
           <button
             type="button"
             className="btn-secondary h-8 px-2 text-xs"
-            onClick={() => {
-              setResetTarget(row);
-              setResetPassword('');
-              setResetMustReset(true);
-            }}
+            onClick={() => openResetModal(row)}
           >
             <FiKey className="mr-1" />
             Reset
@@ -303,7 +408,7 @@ export const AdminUsersPage = () => {
           <button
             type="button"
             className="btn-secondary h-8 px-2 text-xs text-rose-600 dark:text-rose-400"
-            onClick={() => setDeleteTarget(row)}
+            onClick={() => openDeleteModal(row)}
             disabled={row.id === currentUser?.id}
             title={row.id === currentUser?.id ? 'Cannot delete own account' : undefined}
           >
@@ -326,7 +431,7 @@ export const AdminUsersPage = () => {
               <FiRefreshCw className="mr-2 text-sm" />
               Refresh
             </button>
-            <button type="button" className="btn-primary" onClick={() => setCreateOpen(true)}>
+            <button type="button" className="btn-primary" onClick={openCreateModal}>
               <FiUserPlus className="mr-2 text-sm" />
               Create User
             </button>
@@ -391,31 +496,58 @@ export const AdminUsersPage = () => {
         title="Create User"
         description="Create a new user with secure defaults and role-based access."
         confirmLabel={createBusy ? 'Creating...' : 'Create User'}
+        confirmDisabled={createBusy}
         cancelLabel="Cancel"
-        onCancel={() => {
-          if (createBusy) return;
-          setCreateOpen(false);
-          setCreateForm(defaultCreateForm);
-        }}
+        cancelDisabled={createBusy}
+        onCancel={closeCreateModal}
         onConfirm={() => void submitCreateUser()}
       >
         <div className="space-y-3">
-          <input
-            className="input"
-            placeholder="Username"
-            value={createForm.username}
-            onChange={(event) => setCreateForm((prev) => ({ ...prev, username: event.target.value }))}
-          />
-          <input
-            className="input"
-            type="password"
-            placeholder="Temporary Password"
-            value={createForm.password}
-            onChange={(event) => setCreateForm((prev) => ({ ...prev, password: event.target.value }))}
-          />
+          <div>
+            <input
+              className="input"
+              placeholder="Username"
+              autoComplete="username"
+              value={createForm.username}
+              disabled={createBusy}
+              onChange={(event) => {
+                const value = event.target.value;
+                setCreateForm((prev) => ({ ...prev, username: value }));
+                if (createErrors.username) {
+                  setCreateErrors((prev) => ({ ...prev, username: undefined }));
+                }
+              }}
+            />
+            {createErrors.username && (
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{createErrors.username}</p>
+            )}
+          </div>
+
+          <div>
+            <input
+              className="input"
+              type="password"
+              placeholder="Temporary Password"
+              autoComplete="new-password"
+              value={createForm.password}
+              disabled={createBusy}
+              onChange={(event) => {
+                const value = event.target.value;
+                setCreateForm((prev) => ({ ...prev, password: value }));
+                if (createErrors.password) {
+                  setCreateErrors((prev) => ({ ...prev, password: undefined }));
+                }
+              }}
+            />
+            {createErrors.password && (
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{createErrors.password}</p>
+            )}
+          </div>
+
           <select
             className="input"
             value={createForm.role}
+            disabled={createBusy}
             onChange={(event) => setCreateForm((prev) => ({ ...prev, role: event.target.value as Role }))}
           >
             {roleOptions.map((option) => (
@@ -424,10 +556,12 @@ export const AdminUsersPage = () => {
               </option>
             ))}
           </select>
+
           <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
             <input
               type="checkbox"
               checked={createForm.is_active}
+              disabled={createBusy}
               onChange={(event) => setCreateForm((prev) => ({ ...prev, is_active: event.target.checked }))}
             />
             User is active
@@ -436,6 +570,7 @@ export const AdminUsersPage = () => {
             <input
               type="checkbox"
               checked={createForm.must_reset_password}
+              disabled={createBusy}
               onChange={(event) =>
                 setCreateForm((prev) => ({ ...prev, must_reset_password: event.target.checked }))
               }
@@ -447,30 +582,37 @@ export const AdminUsersPage = () => {
 
       <Modal
         open={Boolean(resetTarget)}
-        title={resetTarget ? `Reset Password · ${resetTarget.username}` : 'Reset Password'}
+        title={resetTarget ? `Reset Password - ${resetTarget.username}` : 'Reset Password'}
         description="Set a temporary password and optionally require forced rotation at next login."
         confirmLabel={resetBusy ? 'Resetting...' : 'Reset Password'}
+        confirmDisabled={resetBusy}
         cancelLabel="Cancel"
-        onCancel={() => {
-          if (resetBusy) return;
-          setResetTarget(null);
-          setResetPassword('');
-          setResetMustReset(true);
-        }}
+        cancelDisabled={resetBusy}
+        onCancel={closeResetModal}
         onConfirm={() => void submitResetPassword()}
       >
         <div className="space-y-3">
-          <input
-            className="input"
-            type="password"
-            placeholder="New temporary password"
-            value={resetPassword}
-            onChange={(event) => setResetPassword(event.target.value)}
-          />
+          <div>
+            <input
+              className="input"
+              type="password"
+              placeholder="New temporary password"
+              autoComplete="new-password"
+              value={resetPassword}
+              disabled={resetBusy}
+              onChange={(event) => {
+                setResetPassword(event.target.value);
+                if (resetError) setResetError(null);
+              }}
+            />
+            {resetError && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{resetError}</p>}
+          </div>
+
           <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
             <input
               type="checkbox"
               checked={resetMustReset}
+              disabled={resetBusy}
               onChange={(event) => setResetMustReset(event.target.checked)}
             />
             Require password reset on next login
@@ -480,19 +622,31 @@ export const AdminUsersPage = () => {
 
       <Modal
         open={Boolean(deleteTarget)}
-        title={deleteTarget ? `Delete User · ${deleteTarget.username}` : 'Delete User'}
+        title={deleteTarget ? `Delete User - ${deleteTarget.username}` : 'Delete User'}
         description="This permanently removes the account. This action is audited."
         confirmLabel={deleteBusy ? 'Deleting...' : 'Delete User'}
+        confirmDisabled={deleteBusy}
         cancelLabel="Cancel"
-        onCancel={() => {
-          if (deleteBusy) return;
-          setDeleteTarget(null);
-        }}
+        cancelDisabled={deleteBusy}
+        onCancel={closeDeleteModal}
         onConfirm={() => void submitDeleteUser()}
       >
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          Confirm deletion only if this identity is no longer needed.
-        </p>
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Confirm deletion by typing <span className="font-semibold">{deleteTarget?.username}</span> below.
+          </p>
+          <input
+            className="input"
+            value={deleteConfirmText}
+            disabled={deleteBusy}
+            onChange={(event) => {
+              setDeleteConfirmText(event.target.value);
+              if (deleteError) setDeleteError(null);
+            }}
+            placeholder="Type username to confirm"
+          />
+          {deleteError && <p className="text-xs text-rose-600 dark:text-rose-400">{deleteError}</p>}
+        </div>
       </Modal>
 
       <ToastStack toasts={toasts} onDismiss={dismissToast} />

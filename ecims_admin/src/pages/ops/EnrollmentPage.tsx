@@ -11,6 +11,8 @@ import {
   FiUpload,
 } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
+import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -21,6 +23,14 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { ToastStack, type ToastItem } from '../../components/ui/Toast';
 import type { EnrollmentMode, EnrollmentReasonCode, EnrollmentToken } from '../../types';
 
+type IssueValidationErrors = {
+  reason?: string;
+  idempotencyKey?: string;
+  metadataJson?: string;
+  expiresInHours?: string;
+  maxUses?: string;
+};
+
 const reasonOptions: Array<{ value: EnrollmentReasonCode; label: string }> = [
   { value: 'MAINTENANCE', label: 'Maintenance' },
   { value: 'OFFLINE_AIRGAP', label: 'Offline / Air-gapped' },
@@ -30,8 +40,7 @@ const reasonOptions: Array<{ value: EnrollmentReasonCode; label: string }> = [
   { value: 'COMPLIANCE', label: 'Compliance' },
 ];
 
-const makeIdempotencyKey = () => `enroll-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
+const MIN_REASON_LENGTH = 5;
 
 const modeBadgeClass = (value: string) => {
   if (value === 'OFFLINE') return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300';
@@ -78,8 +87,23 @@ const defaultIssueForm: IssueForm = {
   maxUses: 1,
   reasonCode: 'BOOTSTRAP',
   reason: '',
-  idempotencyKey: makeIdempotencyKey(),
+  idempotencyKey: createIdempotencyKey('enroll'),
   metadataJson: '{"source":"admin-console"}',
+};
+
+const parseObjectJson = (value: string): { data?: Record<string, unknown>; error?: string } => {
+  const trimmed = value.trim();
+  if (!trimmed) return { data: {} };
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { error: 'JSON payload must be an object.' };
+    }
+    return { data: parsed as Record<string, unknown> };
+  } catch {
+    return { error: 'JSON payload is invalid.' };
+  }
 };
 
 export const EnrollmentPage = () => {
@@ -94,16 +118,19 @@ export const EnrollmentPage = () => {
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueBusy, setIssueBusy] = useState(false);
   const [issueForm, setIssueForm] = useState<IssueForm>(defaultIssueForm);
+  const [issueErrors, setIssueErrors] = useState<IssueValidationErrors>({});
   const [issueResult, setIssueResult] = useState<IssueResult | null>(null);
   const [resultOpen, setResultOpen] = useState(false);
 
   const [importOpen, setImportOpen] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [importJson, setImportJson] = useState('');
+  const [importError, setImportError] = useState<string | null>(null);
 
   const [revokeOpen, setRevokeOpen] = useState(false);
   const [revokeBusy, setRevokeBusy] = useState(false);
   const [revokeReason, setRevokeReason] = useState('');
+  const [revokeError, setRevokeError] = useState<string | null>(null);
   const [revokeTarget, setRevokeTarget] = useState<EnrollmentToken | null>(null);
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -133,10 +160,10 @@ export const EnrollmentPage = () => {
       });
       setRows(response.data.items ?? []);
       setStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setRows([]);
       setStatus('error');
-      setErrorMessage(parseError(error, 'Unable to load enrollment tokens'));
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load enrollment tokens'));
     }
   };
 
@@ -145,7 +172,8 @@ export const EnrollmentPage = () => {
   }, []);
 
   const resetIssueForm = () => {
-    setIssueForm({ ...defaultIssueForm, idempotencyKey: makeIdempotencyKey() });
+    setIssueForm({ ...defaultIssueForm, idempotencyKey: createIdempotencyKey('enroll') });
+    setIssueErrors({});
   };
 
   const openIssueModal = () => {
@@ -153,23 +181,46 @@ export const EnrollmentPage = () => {
     setIssueOpen(true);
   };
 
-  const issueToken = async () => {
-    if (issueForm.reason.trim().length < 5) {
-      pushToast({ title: 'Reason should be at least 5 characters', tone: 'warning' });
-      return;
+  const closeIssueModal = () => {
+    if (issueBusy) return;
+    setIssueOpen(false);
+  };
+
+  const validateIssueForm = (): { errors: IssueValidationErrors; metadata?: Record<string, unknown> } => {
+    const errors: IssueValidationErrors = {};
+
+    if (issueForm.reason.trim().length < MIN_REASON_LENGTH) {
+      errors.reason = `Reason should be at least ${MIN_REASON_LENGTH} characters.`;
     }
 
-    let metadata: Record<string, unknown> = {};
-    try {
-      const parsed = issueForm.metadataJson.trim() ? JSON.parse(issueForm.metadataJson) : {};
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        metadata = parsed as Record<string, unknown>;
-      } else {
-        pushToast({ title: 'Metadata JSON must be an object', tone: 'warning' });
-        return;
-      }
-    } catch {
-      pushToast({ title: 'Metadata JSON is invalid', tone: 'warning' });
+    errors.idempotencyKey = validateIdempotencyKey(issueForm.idempotencyKey, { minLength: 12 });
+
+    if (issueForm.expiresInHours < 1 || issueForm.expiresInHours > 720) {
+      errors.expiresInHours = 'Expiry must be between 1 and 720 hours.';
+    }
+
+    if (issueForm.maxUses < 1 || issueForm.maxUses > 1000) {
+      errors.maxUses = 'Max uses must be between 1 and 1000.';
+    }
+
+    const metadataParse = parseObjectJson(issueForm.metadataJson);
+    if (metadataParse.error) {
+      errors.metadataJson = metadataParse.error;
+    }
+
+    return { errors, metadata: metadataParse.data };
+  };
+
+  const issueToken = async () => {
+    const validation = validateIssueForm();
+    setIssueErrors(validation.errors);
+
+    if (Object.keys(validation.errors).length > 0) {
+      pushToast({
+        title: 'Validation failed',
+        description: 'Fix highlighted fields before issuing token.',
+        tone: 'warning',
+      });
       return;
     }
 
@@ -182,7 +233,7 @@ export const EnrollmentPage = () => {
         reason_code: issueForm.reasonCode,
         reason: issueForm.reason.trim(),
         idempotency_key: issueForm.idempotencyKey.trim(),
-        metadata,
+        metadata: validation.metadata,
       });
       setIssueOpen(false);
       await loadTokens();
@@ -202,10 +253,10 @@ export const EnrollmentPage = () => {
           : `Token ${response.data.item.token_id} already existed for this request key`,
         tone: response.data.created ? 'success' : 'info',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Issue token failed',
-        description: parseError(error, 'Unable to issue enrollment token'),
+        description: getApiErrorMessage(error, 'Unable to issue enrollment token'),
         tone: 'error',
       });
     } finally {
@@ -215,37 +266,40 @@ export const EnrollmentPage = () => {
 
   const openImportModal = () => {
     setImportJson('');
+    setImportError(null);
     setImportOpen(true);
   };
 
+  const closeImportModal = () => {
+    if (importBusy) return;
+    setImportOpen(false);
+    setImportError(null);
+  };
+
   const importKit = async () => {
-    let bundle: Record<string, unknown>;
-    try {
-      const parsed = JSON.parse(importJson.trim());
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        pushToast({ title: 'Bundle JSON must be an object', tone: 'warning' });
-        return;
-      }
-      bundle = parsed as Record<string, unknown>;
-    } catch {
-      pushToast({ title: 'Bundle JSON is invalid', tone: 'warning' });
+    const parsed = parseObjectJson(importJson);
+    if (parsed.error || !parsed.data) {
+      const message = parsed.error ?? 'Bundle JSON is invalid.';
+      setImportError(message);
+      pushToast({ title: 'Validation failed', description: message, tone: 'warning' });
       return;
     }
 
     setImportBusy(true);
     try {
-      const response = await CoreApi.importOfflineEnrollmentKit({ bundle });
+      const response = await CoreApi.importOfflineEnrollmentKit({ bundle: parsed.data });
       setImportOpen(false);
+      setImportError(null);
       await loadTokens();
       pushToast({
         title: 'Offline kit imported',
         description: `Token ${response.data.item.token_id} (created_token=${response.data.created_token ? 'yes' : 'no'}, created_kit=${response.data.created_kit ? 'yes' : 'no'})`,
         tone: 'success',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Import failed',
-        description: parseError(error, 'Unable to import offline enrollment kit'),
+        description: getApiErrorMessage(error, 'Unable to import offline enrollment kit'),
         tone: 'error',
       });
     } finally {
@@ -256,13 +310,24 @@ export const EnrollmentPage = () => {
   const openRevokeModal = (row: EnrollmentToken) => {
     setRevokeTarget(row);
     setRevokeReason('');
+    setRevokeError(null);
     setRevokeOpen(true);
+  };
+
+  const closeRevokeModal = () => {
+    if (revokeBusy) return;
+    setRevokeOpen(false);
+    setRevokeTarget(null);
+    setRevokeReason('');
+    setRevokeError(null);
   };
 
   const revokeToken = async () => {
     if (!revokeTarget) return;
-    if (revokeReason.trim().length < 5) {
-      pushToast({ title: 'Reason should be at least 5 characters', tone: 'warning' });
+    if (revokeReason.trim().length < MIN_REASON_LENGTH) {
+      const message = `Reason should be at least ${MIN_REASON_LENGTH} characters.`;
+      setRevokeError(message);
+      pushToast({ title: 'Validation failed', description: message, tone: 'warning' });
       return;
     }
     setRevokeBusy(true);
@@ -270,16 +335,18 @@ export const EnrollmentPage = () => {
       await CoreApi.revokeEnrollmentToken(revokeTarget.token_id, { reason: revokeReason.trim() });
       setRevokeOpen(false);
       setRevokeTarget(null);
+      setRevokeReason('');
+      setRevokeError(null);
       await loadTokens();
       pushToast({
         title: 'Enrollment token revoked',
         description: `Token ${revokeTarget.token_id} moved to REVOKED`,
         tone: 'success',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Revoke failed',
-        description: parseError(error, 'Unable to revoke token'),
+        description: getApiErrorMessage(error, 'Unable to revoke token'),
         tone: 'error',
       });
     } finally {
@@ -456,11 +523,10 @@ export const EnrollmentPage = () => {
         title="Generate Enrollment Token"
         description="Issue a token with expiry, usage limit, reason code, and optional metadata for audit context."
         confirmLabel={issueBusy ? 'Issuing...' : 'Issue Token'}
+        confirmDisabled={issueBusy}
         cancelLabel="Cancel"
-        onCancel={() => {
-          if (issueBusy) return;
-          setIssueOpen(false);
-        }}
+        cancelDisabled={issueBusy}
+        onCancel={closeIssueModal}
         onConfirm={() => void issueToken()}
       >
         <div className="space-y-3">
@@ -468,6 +534,7 @@ export const EnrollmentPage = () => {
             <select
               className="input"
               value={issueForm.mode}
+              disabled={issueBusy}
               onChange={(event) => setIssueForm((prev) => ({ ...prev, mode: event.target.value as EnrollmentMode }))}
             >
               <option value="ONLINE">ONLINE</option>
@@ -476,6 +543,7 @@ export const EnrollmentPage = () => {
             <select
               className="input"
               value={issueForm.reasonCode}
+              disabled={issueBusy}
               onChange={(event) =>
                 setIssueForm((prev) => ({ ...prev, reasonCode: event.target.value as EnrollmentReasonCode }))
               }
@@ -489,56 +557,105 @@ export const EnrollmentPage = () => {
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <input
-              type="number"
-              min={1}
-              max={720}
-              className="input"
-              value={issueForm.expiresInHours}
-              onChange={(event) =>
-                setIssueForm((prev) => ({
-                  ...prev,
-                  expiresInHours: Math.max(1, Math.min(720, Number(event.target.value) || 1)),
-                }))
-              }
-              placeholder="Expires in hours"
-            />
-            <input
-              type="number"
-              min={1}
-              max={1000}
-              className="input"
-              value={issueForm.maxUses}
-              onChange={(event) =>
-                setIssueForm((prev) => ({
-                  ...prev,
-                  maxUses: Math.max(1, Math.min(1000, Number(event.target.value) || 1)),
-                }))
-              }
-              placeholder="Max uses"
-            />
+            <div>
+              <input
+                type="number"
+                min={1}
+                max={720}
+                className="input"
+                value={issueForm.expiresInHours}
+                disabled={issueBusy}
+                onChange={(event) => {
+                  setIssueForm((prev) => ({
+                    ...prev,
+                    expiresInHours: Math.max(1, Math.min(720, Number(event.target.value) || 1)),
+                  }));
+                  if (issueErrors.expiresInHours) {
+                    setIssueErrors((prev) => ({ ...prev, expiresInHours: undefined }));
+                  }
+                }}
+                placeholder="Expires in hours"
+              />
+              {issueErrors.expiresInHours && (
+                <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{issueErrors.expiresInHours}</p>
+              )}
+            </div>
+            <div>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                className="input"
+                value={issueForm.maxUses}
+                disabled={issueBusy}
+                onChange={(event) => {
+                  setIssueForm((prev) => ({
+                    ...prev,
+                    maxUses: Math.max(1, Math.min(1000, Number(event.target.value) || 1)),
+                  }));
+                  if (issueErrors.maxUses) {
+                    setIssueErrors((prev) => ({ ...prev, maxUses: undefined }));
+                  }
+                }}
+                placeholder="Max uses"
+              />
+              {issueErrors.maxUses && (
+                <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{issueErrors.maxUses}</p>
+              )}
+            </div>
           </div>
 
-          <textarea
-            className="input min-h-[84px] resize-y"
-            value={issueForm.reason}
-            onChange={(event) => setIssueForm((prev) => ({ ...prev, reason: event.target.value }))}
-            placeholder="Reason (min 5 chars)"
-          />
+          <div>
+            <textarea
+              className="input min-h-[84px] resize-y"
+              value={issueForm.reason}
+              disabled={issueBusy}
+              onChange={(event) => {
+                setIssueForm((prev) => ({ ...prev, reason: event.target.value }));
+                if (issueErrors.reason) {
+                  setIssueErrors((prev) => ({ ...prev, reason: undefined }));
+                }
+              }}
+              placeholder="Reason (min 5 chars)"
+            />
+            {issueErrors.reason && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{issueErrors.reason}</p>}
+          </div>
 
-          <input
-            className="input"
-            value={issueForm.idempotencyKey}
-            onChange={(event) => setIssueForm((prev) => ({ ...prev, idempotencyKey: event.target.value }))}
-            placeholder="Idempotency key"
-          />
+          <div>
+            <input
+              className="input"
+              value={issueForm.idempotencyKey}
+              disabled={issueBusy}
+              onChange={(event) => {
+                setIssueForm((prev) => ({ ...prev, idempotencyKey: event.target.value }));
+                if (issueErrors.idempotencyKey) {
+                  setIssueErrors((prev) => ({ ...prev, idempotencyKey: undefined }));
+                }
+              }}
+              placeholder="Idempotency key"
+            />
+            {issueErrors.idempotencyKey && (
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{issueErrors.idempotencyKey}</p>
+            )}
+          </div>
 
-          <textarea
-            className="input min-h-[92px] resize-y font-mono text-xs"
-            value={issueForm.metadataJson}
-            onChange={(event) => setIssueForm((prev) => ({ ...prev, metadataJson: event.target.value }))}
-            placeholder='Metadata JSON (example: {"source":"admin-console"})'
-          />
+          <div>
+            <textarea
+              className="input min-h-[92px] resize-y font-mono text-xs"
+              value={issueForm.metadataJson}
+              disabled={issueBusy}
+              onChange={(event) => {
+                setIssueForm((prev) => ({ ...prev, metadataJson: event.target.value }));
+                if (issueErrors.metadataJson) {
+                  setIssueErrors((prev) => ({ ...prev, metadataJson: undefined }));
+                }
+              }}
+              placeholder='Metadata JSON (example: {"source":"admin-console"})'
+            />
+            {issueErrors.metadataJson && (
+              <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{issueErrors.metadataJson}</p>
+            )}
+          </div>
 
           {issueForm.mode === 'OFFLINE' && (
             <p className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-300">
@@ -660,20 +777,24 @@ export const EnrollmentPage = () => {
         title="Import Offline Enrollment Kit"
         description="Paste exported offline kit JSON to register token and kit metadata."
         confirmLabel={importBusy ? 'Importing...' : 'Import Kit'}
+        confirmDisabled={importBusy}
         cancelLabel="Cancel"
-        onCancel={() => {
-          if (importBusy) return;
-          setImportOpen(false);
-        }}
+        cancelDisabled={importBusy}
+        onCancel={closeImportModal}
         onConfirm={() => void importKit()}
       >
         <div className="space-y-3">
           <textarea
             className="input min-h-[220px] resize-y font-mono text-xs"
             value={importJson}
-            onChange={(event) => setImportJson(event.target.value)}
+            disabled={importBusy}
+            onChange={(event) => {
+              setImportJson(event.target.value);
+              if (importError) setImportError(null);
+            }}
             placeholder='Paste bundle JSON here (contains "kit_id" and "token").'
           />
+          {importError && <p className="text-xs text-rose-600 dark:text-rose-400">{importError}</p>}
           <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
             Import is idempotent per kit_id + bundle hash. Conflicts are rejected for safety.
           </p>
@@ -685,12 +806,10 @@ export const EnrollmentPage = () => {
         title={revokeTarget ? `Revoke ${revokeTarget.token_id}` : 'Revoke Token'}
         description="Revocation is immediate and prevents future enrollments."
         confirmLabel={revokeBusy ? 'Revoking...' : 'Revoke Token'}
+        confirmDisabled={revokeBusy}
         cancelLabel="Cancel"
-        onCancel={() => {
-          if (revokeBusy) return;
-          setRevokeOpen(false);
-          setRevokeTarget(null);
-        }}
+        cancelDisabled={revokeBusy}
+        onCancel={closeRevokeModal}
         onConfirm={() => void revokeToken()}
       >
         <div className="space-y-3">
@@ -702,9 +821,14 @@ export const EnrollmentPage = () => {
           <textarea
             className="input min-h-[84px] resize-y"
             value={revokeReason}
-            onChange={(event) => setRevokeReason(event.target.value)}
+            disabled={revokeBusy}
+            onChange={(event) => {
+              setRevokeReason(event.target.value);
+              if (revokeError) setRevokeError(null);
+            }}
             placeholder="Revocation reason (min 5 chars)"
           />
+          {revokeError && <p className="text-xs text-rose-600 dark:text-rose-400">{revokeError}</p>}
         </div>
       </Modal>
 

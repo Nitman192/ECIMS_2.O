@@ -8,6 +8,8 @@ type ModalProps = {
   children?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  confirmDisabled?: boolean;
+  cancelDisabled?: boolean;
   onConfirm?: () => void;
   onCancel: () => void;
 };
@@ -19,18 +21,26 @@ export const Modal = ({
   children,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  confirmDisabled = false,
+  cancelDisabled = false,
   onConfirm,
   onCancel,
 }: ModalProps) => {
   if (!open) return null;
+
+  const onRequestClose = () => {
+    if (cancelDisabled) return;
+    onCancel();
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button
         type="button"
         className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
-        onClick={onCancel}
+        onClick={onRequestClose}
         aria-label="Close dialog"
+        disabled={cancelDisabled}
       />
 
       <div className="relative z-10 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900">
@@ -41,9 +51,10 @@ export const Modal = ({
           </div>
           <button
             type="button"
-            onClick={onCancel}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            onClick={onRequestClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             aria-label="Close"
+            disabled={cancelDisabled}
           >
             <FiX />
           </button>
@@ -52,11 +63,11 @@ export const Modal = ({
         {children && <div className="mt-4">{children}</div>}
 
         <div className="mt-6 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} className="btn-secondary">
+          <button type="button" onClick={onRequestClose} className="btn-secondary" disabled={cancelDisabled}>
             {cancelLabel}
           </button>
           {onConfirm && (
-            <button type="button" onClick={onConfirm} className="btn-primary">
+            <button type="button" onClick={onConfirm} className="btn-primary" disabled={confirmDisabled}>
               {confirmLabel}
             </button>
           )}
