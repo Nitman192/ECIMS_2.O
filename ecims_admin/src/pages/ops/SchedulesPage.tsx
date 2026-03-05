@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FiCalendar, FiClock, FiEye, FiPause, FiPlay, FiPlus, FiRefreshCw, FiSearch, FiShield } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
 import { getApiErrorMessage, normalizeListResponse } from '../../api/utils';
+import { useToastStack } from '../../hooks/useToastStack';
 import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
 import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
@@ -11,7 +12,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Modal } from '../../components/ui/Modal';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { ToastStack, type ToastItem } from '../../components/ui/Toast';
+import { ToastStack } from '../../components/ui/Toast';
 import type {
   Agent,
   MaintenanceOrchestrationMode,
@@ -124,14 +125,7 @@ export const SchedulesPage = () => {
   const [conflictsSchedule, setConflictsSchedule] = useState<MaintenanceSchedule | null>(null);
   const [conflictsRows, setConflictsRows] = useState<MaintenanceScheduleConflict[]>([]);
 
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const pushToast = (toast: Omit<ToastItem, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    window.setTimeout(() => setToasts((prev) => prev.filter((item) => item.id !== id)), 3800);
-  };
-  const dismissToast = (id: string) => setToasts((prev) => prev.filter((item) => item.id !== id));
+  const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 3800 });
 
   const loadAgents = async () => {
     try {

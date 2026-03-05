@@ -115,6 +115,16 @@ class ApiClient:
         response.raise_for_status()
         return response.json()
 
+    def enroll(self, name: str, hostname: str, enrollment_token: str) -> dict:
+        response = self.session.post(
+            f"{self.server_url}/api/v1/agents/enroll",
+            json={"name": name, "hostname": hostname, "enrollment_token": enrollment_token},
+            headers=self._client_cert_header(),
+            timeout=10,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def heartbeat(self, agent_id: int, token: str) -> None:
         headers = {"X-ECIMS-TOKEN": token}
         headers.update(self._client_cert_header())

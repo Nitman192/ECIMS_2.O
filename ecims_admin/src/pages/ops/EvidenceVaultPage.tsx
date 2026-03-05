@@ -14,6 +14,7 @@ import {
 } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
 import { getApiErrorMessage } from '../../api/utils';
+import { useToastStack } from '../../hooks/useToastStack';
 import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
 import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
@@ -23,7 +24,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Modal } from '../../components/ui/Modal';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { ToastStack, type ToastItem } from '../../components/ui/Toast';
+import { ToastStack } from '../../components/ui/Toast';
 import type {
   EvidenceClassification,
   EvidenceCustodyEvent,
@@ -163,17 +164,7 @@ export const EvidenceVaultPage = () => {
   const [exportHash, setExportHash] = useState('');
   const [exportBundle, setExportBundle] = useState<Record<string, unknown> | null>(null);
 
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const pushToast = (toast: Omit<ToastItem, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    window.setTimeout(() => setToasts((prev) => prev.filter((item) => item.id !== id)), 4200);
-  };
-
-  const dismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((item) => item.id !== id));
-  };
+  const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 4200 });
 
   const loadEvidence = async () => {
     setStatus('loading');

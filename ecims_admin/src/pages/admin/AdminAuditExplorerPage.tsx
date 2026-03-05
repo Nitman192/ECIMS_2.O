@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FiDownload, FiFilter, FiRefreshCw, FiSearch } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -21,8 +23,6 @@ type AuditExplorerRow = {
   message: string;
   metadata?: Record<string, unknown>;
 };
-
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
 
 const formatDateTimeInput = (value: string): string => {
   if (!value) return '';
@@ -97,10 +97,10 @@ export const AdminAuditExplorerPage = () => {
       const response = await CoreApi.auditLogs({
         page: '1',
         page_size: '200',
-        action_type: actionType.trim() || '',
-        role: role.trim() || '',
-        user: user.trim() || '',
-        outcome: outcome !== 'all' ? outcome : '',
+        action_type: toOptionalQuery(actionType) ?? '',
+        role: toOptionalQuery(role) ?? '',
+        user: toOptionalQuery(user) ?? '',
+        outcome: toOptionalFilter(outcome) ?? '',
         start_ts: formatDateTimeInput(start),
         end_ts: formatDateTimeInput(end),
       });
@@ -108,10 +108,10 @@ export const AdminAuditExplorerPage = () => {
       const nextRows = Array.isArray(payload) ? payload : payload.items ?? [];
       setRows(nextRows);
       setStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setRows([]);
       setStatus('error');
-      setErrorMessage(parseError(error, 'Unable to load audit explorer data'));
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load audit explorer data'));
     }
   };
 
@@ -136,10 +136,10 @@ export const AdminAuditExplorerPage = () => {
       const response = await CoreApi.exportAudit({
         start_ts: formatDateTimeInput(start) || '1970-01-01T00:00:00Z',
         end_ts: formatDateTimeInput(end) || new Date().toISOString(),
-        action_type: actionType.trim() || undefined,
-        outcome: outcome !== 'all' ? outcome : undefined,
-        role: role.trim() || undefined,
-        user: user.trim() || undefined,
+        action_type: toOptionalQuery(actionType),
+        outcome: toOptionalFilter(outcome),
+        role: toOptionalQuery(role),
+        user: toOptionalQuery(user),
         redaction_profile: 'standard',
         max_rows: 100000,
       });
@@ -148,8 +148,8 @@ export const AdminAuditExplorerPage = () => {
       setExportNotice(
         `Export ready${outputPath ? `: ${String(outputPath)}` : ''}${rowsCount ? ` (${String(rowsCount)} rows)` : ''}`,
       );
-    } catch (error: any) {
-      setExportNotice(parseError(error, 'Audit export failed'));
+    } catch (error: unknown) {
+      setExportNotice(getApiErrorMessage(error, 'Audit export failed'));
     } finally {
       setExportBusy(false);
     }

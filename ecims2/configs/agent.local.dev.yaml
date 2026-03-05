@@ -1,0 +1,24 @@
+server_url: "http://127.0.0.1:8000"
+agent_name: "endpoint-local-dev"
+hostname: "host-local-dev"
+monitored_paths:
+  - "C:/Windows/Temp"
+scan_interval_sec: 30
+enrollment_token: null
+
+# Local-dev mode (no TLS pinning). Use only for local testing.
+agent_client_cert_path: null
+agent_client_key_path: null
+agent_pfx_path: null
+agent_pfx_password: null
+server_ca_bundle_path: null
+server_cert_pin_sha256: ""
+pinning_required: false
+allow_plain_https: true
+
+device_enforcement_mode: "observe"
+command_poll_interval_sec: 15
+failsafe_offline_minutes: 5
+token_public_key_path: "configs/device_allow_token_public.pem"
+local_event_queue_retention_hours: 72
+enforcement_grace_seconds: 0

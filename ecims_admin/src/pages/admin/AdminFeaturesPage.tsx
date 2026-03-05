@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FiFlag, FiPlus, FiRefreshCw, FiSearch, FiShield } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
+import { useToastStack } from '../../hooks/useToastStack';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -8,7 +11,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Modal } from '../../components/ui/Modal';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { ToastStack, type ToastItem } from '../../components/ui/Toast';
+import { ToastStack } from '../../components/ui/Toast';
 import type {
   FeatureFlag,
   FeatureFlagCreatePayload,
@@ -59,8 +62,6 @@ const defaultCreateForm: CreateFormState = {
   confirmRisky: false,
 };
 
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
-
 export const AdminFeaturesPage = () => {
   const [rows, setRows] = useState<FeatureFlag[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -81,34 +82,21 @@ export const AdminFeaturesPage = () => {
   const [toggleConfirmRisky, setToggleConfirmRisky] = useState(false);
   const [toggleBusy, setToggleBusy] = useState(false);
 
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const pushToast = (toast: Omit<ToastItem, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 3800);
-  };
-
-  const dismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((item) => item.id !== id));
-  };
+  const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 3800 });
 
   const loadFlags = async () => {
     setStatus('loading');
     setErrorMessage('');
     try {
-      const params: { q?: string; scope?: string; state?: string } = {};
-      if (query.trim()) params.q = query.trim();
-      if (scopeFilter !== 'all') params.scope = scopeFilter;
-      if (stateFilter !== 'all') params.state = stateFilter;
-
-      const response = await CoreApi.listFeatureFlags(params);
+      const response = await CoreApi.listFeatureFlags({
+        q: toOptionalQuery(query),
+        scope: toOptionalFilter(scopeFilter),
+        state: toOptionalFilter(stateFilter),
+      });
       setRows(response.data.items ?? []);
       setStatus('ready');
-    } catch (error: any) {
-      setErrorMessage(parseError(error, 'Unable to load feature flags'));
+    } catch (error: unknown) {
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load feature flags'));
       setStatus('error');
     }
   };
@@ -190,10 +178,10 @@ export const AdminFeaturesPage = () => {
       setCreateOpen(false);
       setCreateForm(defaultCreateForm);
       pushToast({ title: 'Feature flag created', tone: 'success' });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'Create failed',
-        description: parseError(error, 'Unable to create feature flag'),
+        description: getApiErrorMessage(error, 'Unable to create feature flag'),
         tone: 'error',
       });
     } finally {
@@ -236,10 +224,10 @@ export const AdminFeaturesPage = () => {
         title: toggleEnabled ? 'Flag enabled' : 'Flag disabled',
         tone: 'success',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       pushToast({
         title: 'State update failed',
-        description: parseError(error, 'Unable to update feature state'),
+        description: getApiErrorMessage(error, 'Unable to update feature state'),
         tone: 'error',
       });
     } finally {
@@ -413,6 +401,8 @@ export const AdminFeaturesPage = () => {
         description="Add a new scoped control with risk classification, initial state, and audit reason."
         confirmLabel={createBusy ? 'Creating...' : 'Create Flag'}
         cancelLabel="Cancel"
+        confirmDisabled={createBusy}
+        cancelDisabled={createBusy}
         onCancel={() => {
           if (createBusy) return;
           setCreateOpen(false);
@@ -518,6 +508,8 @@ export const AdminFeaturesPage = () => {
         description="Provide reason code and operator note. High-risk toggles require explicit confirmation."
         confirmLabel={toggleBusy ? 'Applying...' : 'Apply'}
         cancelLabel="Cancel"
+        confirmDisabled={toggleBusy}
+        cancelDisabled={toggleBusy}
         onCancel={() => {
           if (toggleBusy) return;
           setToggleTarget(null);

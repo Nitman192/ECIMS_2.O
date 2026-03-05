@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FiActivity, FiRefreshCw, FiSearch, FiShield } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
+import { useToastStack } from '../../hooks/useToastStack';
+import { createIdempotencyKey } from '../../utils/idempotency';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { ToastStack, type ToastItem } from '../../components/ui/Toast';
+import { ToastStack } from '../../components/ui/Toast';
 import type { Agent, FleetDriftItem } from '../../types';
 
 type HealthRow = {
@@ -29,9 +32,6 @@ type HealthRow = {
 type RolloutStatus = {
   kill_switch: boolean;
 };
-
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
-const makeIdempotencyKey = () => `health-sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const trimHash = (value: string) => (value.length > 12 ? `${value.slice(0, 12)}...` : value || '-');
 
@@ -108,17 +108,7 @@ export const HealthPage = () => {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [driftFilter, setDriftFilter] = useState('all');
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const pushToast = (toast: Omit<ToastItem, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 4000);
-  };
-
-  const dismissToast = (id: string) => setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 4000 });
 
   const loadHealth = async () => {
     setStatus('loading');
@@ -165,10 +155,10 @@ export const HealthPage = () => {
 
       setRows(nextRows);
       setStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setRows([]);
       setStatus('error');
-      setErrorMessage(parseError(error, 'Unable to load fleet health data'));
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load fleet health data'));
     }
   };
 
@@ -201,7 +191,7 @@ export const HealthPage = () => {
       const response = await CoreApi.createRemoteActionTask({
         action: 'policy_push',
         agent_ids: driftedAgentIds,
-        idempotency_key: makeIdempotencyKey(),
+        idempotency_key: createIdempotencyKey('health-sync'),
         reason_code: 'POLICY_SYNC',
         reason: 'Fleet health drift remediation push',
         confirm_high_risk: false,
@@ -213,8 +203,8 @@ export const HealthPage = () => {
         tone: response.data.created ? 'success' : 'info',
       });
       await loadHealth();
-    } catch (error: any) {
-      pushToast({ title: 'Policy sync failed', description: parseError(error, 'Unable to push policy'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Policy sync failed', description: getApiErrorMessage(error, 'Unable to push policy'), tone: 'error' });
     } finally {
       setSyncBusy(false);
     }

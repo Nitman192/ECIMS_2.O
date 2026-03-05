@@ -4,6 +4,7 @@ hostname: "host-01"
 monitored_paths:
   - "/tmp"
 scan_interval_sec: 30
+enrollment_token: null
 
 # mTLS client auth (use either PEM pair or PFX)
 agent_client_cert_path: "configs/tls/agent.crt"
@@ -14,6 +15,8 @@ agent_pfx_password: null
 # Server trust + pinning
 server_ca_bundle_path: "configs/tls/server_ca.crt"
 server_cert_pin_sha256: ""
+pinning_required: true
+allow_plain_https: false
 
 # Device control enforcement pilot
 # observe: report-only/would-block

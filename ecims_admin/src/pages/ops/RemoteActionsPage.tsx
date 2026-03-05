@@ -11,7 +11,9 @@ import {
 } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
 import { getApiErrorMessage, normalizeListResponse } from '../../api/utils';
+import { useToastStack } from '../../hooks/useToastStack';
 import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -19,7 +21,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Modal } from '../../components/ui/Modal';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { ToastStack, type ToastItem } from '../../components/ui/Toast';
+import { ToastStack } from '../../components/ui/Toast';
 import type {
   Agent,
   RemoteActionKind,
@@ -106,19 +108,7 @@ export const RemoteActionsPage = () => {
   const [detailStatus, setDetailStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [detailError, setDetailError] = useState('');
 
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const pushToast = (toast: Omit<ToastItem, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 3800);
-  };
-
-  const dismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((item) => item.id !== id));
-  };
+  const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 3800 });
 
   const loadAgents = async () => {
     try {
@@ -136,9 +126,9 @@ export const RemoteActionsPage = () => {
       const response = await CoreApi.listRemoteActionTasks({
         page: 1,
         page_size: 100,
-        action: actionFilter !== 'all' ? actionFilter : undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        q: query.trim() ? query.trim() : undefined,
+        action: toOptionalFilter(actionFilter),
+        status: toOptionalFilter(statusFilter),
+        q: toOptionalQuery(query),
       });
       setTasks(response.data.items ?? []);
       setTasksStatus('ready');

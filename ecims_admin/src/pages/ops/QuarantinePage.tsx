@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FiCheckSquare, FiRefreshCw, FiSearch, FiShieldOff, FiSquare, FiUnlock } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
+import { getApiErrorMessage } from '../../api/utils';
+import { useToastStack } from '../../hooks/useToastStack';
+import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
+import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -8,11 +12,8 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Modal } from '../../components/ui/Modal';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { ToastStack, type ToastItem } from '../../components/ui/Toast';
+import { ToastStack } from '../../components/ui/Toast';
 import type { Agent, RemoteActionTask } from '../../types';
-
-const parseError = (error: any, fallback: string) => error?.response?.data?.detail || error?.message || fallback;
-const makeIdempotencyKey = (prefix: 'iso' | 'rel') => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const statusBadgeClass = (value: string) => {
   if (value === 'DONE') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300';
@@ -39,28 +40,18 @@ export const QuarantinePage = () => {
   const [isolateOpen, setIsolateOpen] = useState(false);
   const [isolateBusy, setIsolateBusy] = useState(false);
   const [isolateReason, setIsolateReason] = useState('');
-  const [isolateIdempotencyKey, setIsolateIdempotencyKey] = useState(makeIdempotencyKey('iso'));
+  const [isolateIdempotencyKey, setIsolateIdempotencyKey] = useState(createIdempotencyKey('iso'));
   const [isolateSearch, setIsolateSearch] = useState('');
   const [selectedAgentIds, setSelectedAgentIds] = useState<number[]>([]);
 
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [releaseBusy, setReleaseBusy] = useState(false);
   const [releaseReason, setReleaseReason] = useState('');
-  const [releaseIdempotencyKey, setReleaseIdempotencyKey] = useState(makeIdempotencyKey('rel'));
+  const [releaseIdempotencyKey, setReleaseIdempotencyKey] = useState(createIdempotencyKey('rel'));
   const [releaseTask, setReleaseTask] = useState<RemoteActionTask | null>(null);
   const [releaseAgentIds, setReleaseAgentIds] = useState<number[]>([]);
 
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const pushToast = (toast: Omit<ToastItem, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 4000);
-  };
-
-  const dismissToast = (id: string) => setToasts((prev) => prev.filter((item) => item.id !== id));
+  const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 4000 });
 
   const loadPage = async () => {
     setStatus('loading');
@@ -71,18 +62,18 @@ export const QuarantinePage = () => {
           page: 1,
           page_size: 100,
           action: 'lockdown',
-          status: statusFilter !== 'all' ? statusFilter : undefined,
-          q: query.trim() ? query.trim() : undefined,
+          status: toOptionalFilter(statusFilter),
+          q: toOptionalQuery(query),
         }),
         CoreApi.agents(),
       ]);
       setTasks(tasksResponse.data.items ?? []);
       setAgents(agentsResponse.data ?? []);
       setStatus('ready');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setTasks([]);
       setStatus('error');
-      setErrorMessage(parseError(error, 'Unable to load quarantine workflow data'));
+      setErrorMessage(getApiErrorMessage(error, 'Unable to load quarantine workflow data'));
     }
   };
 
@@ -124,6 +115,11 @@ export const QuarantinePage = () => {
       pushToast({ title: 'Isolation reason must be at least 5 characters', tone: 'warning' });
       return;
     }
+    const isolationIdempotencyError = validateIdempotencyKey(isolateIdempotencyKey, { minLength: 8 });
+    if (isolationIdempotencyError) {
+      pushToast({ title: isolationIdempotencyError, tone: 'warning' });
+      return;
+    }
     setIsolateBusy(true);
     try {
       const response = await CoreApi.createRemoteActionTask({
@@ -137,7 +133,7 @@ export const QuarantinePage = () => {
       });
       setIsolateOpen(false);
       setIsolateReason('');
-      setIsolateIdempotencyKey(makeIdempotencyKey('iso'));
+      setIsolateIdempotencyKey(createIdempotencyKey('iso'));
       setSelectedAgentIds([]);
       pushToast({
         title: response.data.created ? 'Isolation task created' : 'Idempotent replay returned existing isolation task',
@@ -145,8 +141,8 @@ export const QuarantinePage = () => {
         tone: response.data.created ? 'success' : 'info',
       });
       await loadPage();
-    } catch (error: any) {
-      pushToast({ title: 'Isolation failed', description: parseError(error, 'Unable to create isolation task'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Isolation failed', description: getApiErrorMessage(error, 'Unable to create isolation task'), tone: 'error' });
     } finally {
       setIsolateBusy(false);
     }
@@ -155,18 +151,18 @@ export const QuarantinePage = () => {
   const openRelease = async (task: RemoteActionTask) => {
     setReleaseTask(task);
     setReleaseReason('');
-    setReleaseIdempotencyKey(makeIdempotencyKey('rel'));
+    setReleaseIdempotencyKey(createIdempotencyKey('rel'));
     setReleaseOpen(true);
     setReleaseBusy(true);
     try {
       const response = await CoreApi.getRemoteActionTaskTargets(task.id);
       const targetIds = (response.data.items ?? []).map((item) => item.agent_id);
       setReleaseAgentIds(Array.from(new Set(targetIds)));
-    } catch (error: any) {
+    } catch (error: unknown) {
       setReleaseOpen(false);
       setReleaseTask(null);
       setReleaseAgentIds([]);
-      pushToast({ title: 'Unable to load task targets', description: parseError(error, 'Release pre-check failed'), tone: 'error' });
+      pushToast({ title: 'Unable to load task targets', description: getApiErrorMessage(error, 'Release pre-check failed'), tone: 'error' });
     } finally {
       setReleaseBusy(false);
     }
@@ -180,6 +176,11 @@ export const QuarantinePage = () => {
     }
     if (releaseReason.trim().length < 5) {
       pushToast({ title: 'Release reason must be at least 5 characters', tone: 'warning' });
+      return;
+    }
+    const releaseIdempotencyError = validateIdempotencyKey(releaseIdempotencyKey, { minLength: 8 });
+    if (releaseIdempotencyError) {
+      pushToast({ title: releaseIdempotencyError, tone: 'warning' });
       return;
     }
     setReleaseBusy(true);
@@ -206,8 +207,8 @@ export const QuarantinePage = () => {
         tone: response.data.created ? 'success' : 'info',
       });
       await loadPage();
-    } catch (error: any) {
-      pushToast({ title: 'Release workflow failed', description: parseError(error, 'Unable to create release task'), tone: 'error' });
+    } catch (error: unknown) {
+      pushToast({ title: 'Release workflow failed', description: getApiErrorMessage(error, 'Unable to create release task'), tone: 'error' });
     } finally {
       setReleaseBusy(false);
     }
@@ -272,7 +273,7 @@ export const QuarantinePage = () => {
               className="btn-primary"
               onClick={() => {
                 setIsolateReason('');
-                setIsolateIdempotencyKey(makeIdempotencyKey('iso'));
+                setIsolateIdempotencyKey(createIdempotencyKey('iso'));
                 setSelectedAgentIds([]);
                 setIsolateSearch('');
                 setIsolateOpen(true);
@@ -335,6 +336,8 @@ export const QuarantinePage = () => {
         description="Create lockdown task for selected hosts."
         confirmLabel={isolateBusy ? 'Queuing...' : 'Queue Isolation'}
         cancelLabel="Cancel"
+        confirmDisabled={isolateBusy}
+        cancelDisabled={isolateBusy}
         onCancel={() => {
           if (isolateBusy) return;
           setIsolateOpen(false);
@@ -345,12 +348,14 @@ export const QuarantinePage = () => {
           <textarea
             className="input min-h-[80px] resize-y"
             value={isolateReason}
+            disabled={isolateBusy}
             onChange={(event) => setIsolateReason(event.target.value)}
             placeholder="Isolation reason (min 5 chars)"
           />
           <input
             className="input"
             value={isolateIdempotencyKey}
+            disabled={isolateBusy}
             onChange={(event) => setIsolateIdempotencyKey(event.target.value)}
             placeholder="Idempotency key"
           />
@@ -359,11 +364,12 @@ export const QuarantinePage = () => {
             <div className="mb-2 flex items-center gap-2">
               <input
                 value={isolateSearch}
+                disabled={isolateBusy}
                 onChange={(event) => setIsolateSearch(event.target.value)}
                 className="input h-9"
                 placeholder="Search agent id, name, hostname"
               />
-              <button type="button" className="btn-secondary h-9 px-2 text-xs" onClick={selectAllOnlineAgents}>
+              <button type="button" className="btn-secondary h-9 px-2 text-xs disabled:opacity-60" disabled={isolateBusy} onClick={selectAllOnlineAgents}>
                 <FiCheckSquare className="mr-1 text-xs" />
                 Select Online
               </button>
@@ -381,6 +387,7 @@ export const QuarantinePage = () => {
                         ? 'border-cyan-500 bg-cyan-50 text-cyan-700 dark:border-cyan-400 dark:bg-cyan-950/30 dark:text-cyan-300'
                         : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
                     }`}
+                    disabled={isolateBusy}
                     onClick={() => toggleAgent(agent.id)}
                   >
                     <span className="truncate">
@@ -401,6 +408,8 @@ export const QuarantinePage = () => {
         description="Create policy rollback task to reverse isolation."
         confirmLabel={releaseBusy ? 'Queuing...' : 'Queue Release'}
         cancelLabel="Cancel"
+        confirmDisabled={releaseBusy}
+        cancelDisabled={releaseBusy}
         onCancel={() => {
           if (releaseBusy) return;
           setReleaseOpen(false);
@@ -413,12 +422,14 @@ export const QuarantinePage = () => {
           <textarea
             className="input min-h-[80px] resize-y"
             value={releaseReason}
+            disabled={releaseBusy}
             onChange={(event) => setReleaseReason(event.target.value)}
             placeholder="Release reason (min 5 chars)"
           />
           <input
             className="input"
             value={releaseIdempotencyKey}
+            disabled={releaseBusy}
             onChange={(event) => setReleaseIdempotencyKey(event.target.value)}
             placeholder="Idempotency key"
           />

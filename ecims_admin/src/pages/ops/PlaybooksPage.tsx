@@ -11,6 +11,7 @@ import {
 } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
 import { getApiErrorMessage, normalizeListResponse } from '../../api/utils';
+import { useToastStack } from '../../hooks/useToastStack';
 import { createIdempotencyKey, validateIdempotencyKey } from '../../utils/idempotency';
 import { toOptionalFilter, toOptionalQuery } from '../../utils/listQuery';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
@@ -20,7 +21,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Modal } from '../../components/ui/Modal';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { ToastStack, type ToastItem } from '../../components/ui/Toast';
+import { ToastStack } from '../../components/ui/Toast';
 import type {
   Agent,
   Playbook,
@@ -136,17 +137,7 @@ export const PlaybooksPage = () => {
   const [decisionValue, setDecisionValue] = useState<PlaybookRunDecisionPayload['decision']>('APPROVE');
   const [decisionTarget, setDecisionTarget] = useState<PlaybookRun | null>(null);
 
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const pushToast = (toast: Omit<ToastItem, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 4200);
-  };
-
-  const dismissToast = (id: string) => setToasts((prev) => prev.filter((item) => item.id !== id));
+  const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 4200 });
 
   const loadPlaybooks = async () => {
     setPlaybookStatus('loading');

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FiKey, FiRefreshCw, FiSearch, FiTrash2, FiUserPlus, FiUserX } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
 import { getApiErrorMessage } from '../../api/utils';
+import { useToastStack } from '../../hooks/useToastStack';
 import { DataTable, type DataTableColumn } from '../../components/DataTable';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -9,7 +10,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { Modal } from '../../components/ui/Modal';
 import { PageHeader } from '../../components/ui/PageHeader';
-import { ToastStack, type ToastItem } from '../../components/ui/Toast';
+import { ToastStack } from '../../components/ui/Toast';
 import { useAuth } from '../../store/AuthContext';
 import type { AdminUserCreatePayload, User } from '../../types';
 
@@ -79,19 +80,7 @@ export const AdminUsersPage = () => {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [actionBusyUserId, setActionBusyUserId] = useState<number | null>(null);
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
-
-  const pushToast = (toast: Omit<ToastItem, 'id'>) => {
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setToasts((prev) => [...prev, { ...toast, id }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((item) => item.id !== id));
-    }, 3600);
-  };
-
-  const dismissToast = (id: string) => {
-    setToasts((prev) => prev.filter((item) => item.id !== id));
-  };
+  const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 3600 });
 
   const loadUsers = async () => {
     setStatus('loading');

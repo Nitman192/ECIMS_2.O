@@ -45,7 +45,11 @@ const persistSession = (payload: PersistedSession) => {
 
 const clearPersistedSession = () => {
   if (typeof window === 'undefined') return;
-  window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  try {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // ignore localStorage failures in restricted environments
+  }
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -79,9 +83,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setToken(persisted.token);
     if (persisted.user) {
       setUser(persisted.user);
+      // Do not block app rendering when we already have a persisted user snapshot.
+      setIsInitializing(false);
     }
 
     let canceled = false;
+    let safetyTimeoutId: number | null = null;
+    if (!persisted.user && typeof window !== 'undefined') {
+      // Avoid indefinite loading UI if network/proxy setup is broken locally.
+      safetyTimeoutId = window.setTimeout(() => {
+        if (!canceled) {
+          setIsInitializing(false);
+        }
+      }, 5000);
+    }
+
     void api
       .get<User>('/auth/me', {
         headers: { Authorization: `Bearer ${persisted.token}` },
@@ -97,11 +113,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       })
       .finally(() => {
         if (canceled) return;
-        setIsInitializing(false);
+        if (safetyTimeoutId !== null && typeof window !== 'undefined') {
+          window.clearTimeout(safetyTimeoutId);
+        }
+        if (!persisted.user) {
+          setIsInitializing(false);
+        }
       });
 
     return () => {
       canceled = true;
+      if (safetyTimeoutId !== null && typeof window !== 'undefined') {
+        window.clearTimeout(safetyTimeoutId);
+      }
     };
   }, [clearSession]);
 

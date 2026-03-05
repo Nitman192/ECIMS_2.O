@@ -24,7 +24,15 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error?.response?.status === 401) unauthorizedHandler?.();
+    if (error?.response?.status === 401) {
+      const requestUrl = String(error?.config?.url ?? '');
+      const isAuthLoginRequest = requestUrl.includes('/auth/login');
+      const hasAuthHeader = Boolean(error?.config?.headers?.Authorization);
+      const hasToken = Boolean(tokenGetter?.());
+      if (!isAuthLoginRequest && (hasAuthHeader || hasToken)) {
+        unauthorizedHandler?.();
+      }
+    }
     return Promise.reject(error);
   }
 );

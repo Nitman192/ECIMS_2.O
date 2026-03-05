@@ -13,12 +13,15 @@ class AgentConfig:
     hostname: str
     monitored_paths: list[str]
     scan_interval_sec: int
+    enrollment_token: str | None = None
     agent_client_cert_path: str | None = None
     agent_client_key_path: str | None = None
     agent_pfx_path: str | None = None
     agent_pfx_password: str | None = None
     server_ca_bundle_path: str | None = None
     server_cert_pin_sha256: str | None = None
+    pinning_required: bool = True
+    allow_plain_https: bool = False
     device_enforcement_mode: str = "observe"
     command_poll_interval_sec: int = 15
     failsafe_offline_minutes: int = 5
@@ -35,12 +38,15 @@ def load_config(path: str) -> AgentConfig:
         hostname=raw.get("hostname", "unknown-host"),
         monitored_paths=raw.get("monitored_paths", []),
         scan_interval_sec=int(raw.get("scan_interval_sec", 30)),
+        enrollment_token=raw.get("enrollment_token"),
         agent_client_cert_path=raw.get("agent_client_cert_path"),
         agent_client_key_path=raw.get("agent_client_key_path"),
         agent_pfx_path=raw.get("agent_pfx_path"),
         agent_pfx_password=raw.get("agent_pfx_password"),
         server_ca_bundle_path=raw.get("server_ca_bundle_path"),
         server_cert_pin_sha256=raw.get("server_cert_pin_sha256"),
+        pinning_required=bool(raw.get("pinning_required", True)),
+        allow_plain_https=bool(raw.get("allow_plain_https", False)),
         device_enforcement_mode=str(raw.get("device_enforcement_mode", "observe")),
         command_poll_interval_sec=int(raw.get("command_poll_interval_sec", 15)),
         failsafe_offline_minutes=int(raw.get("failsafe_offline_minutes", 5)),

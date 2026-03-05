@@ -28,8 +28,8 @@ def run(config_path: str) -> None:
             pfx_password=config.agent_pfx_password,
             ca_bundle_path=config.server_ca_bundle_path,
             server_cert_pin_sha256=config.server_cert_pin_sha256,
-            pinning_required=True,
-            allow_plain_https=False,
+            pinning_required=config.pinning_required,
+            allow_plain_https=config.allow_plain_https,
         ),
     )
     adapter = select_adapter()
@@ -43,8 +43,12 @@ def run(config_path: str) -> None:
     adapter.reconcile_state(config.device_enforcement_mode)
 
     if "agent_id" not in state or "token" not in state:
-        logger.info("Registering agent with server")
-        registered = client.register(config.agent_name, config.hostname)
+        if config.enrollment_token:
+            logger.info("Enrolling agent with server enrollment token")
+            registered = client.enroll(config.agent_name, config.hostname, config.enrollment_token)
+        else:
+            logger.info("Registering agent with server")
+            registered = client.register(config.agent_name, config.hostname)
         state["agent_id"] = registered["agent_id"]
         state["token"] = registered["token"]
         state["snapshot"] = {}
