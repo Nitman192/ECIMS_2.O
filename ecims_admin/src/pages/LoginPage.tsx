@@ -1,5 +1,5 @@
-﻿import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { FormEvent, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { bindAuthHandlers } from '../api/client';
 import { AuthApi } from '../api/services';
 import { useAuth } from '../store/AuthContext';
@@ -11,6 +11,15 @@ export const LoginPage = () => {
   const [loading, setLoading] = useState(false);
   const { setSession, clearSession } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const timeoutNotice = useMemo(() => {
+    const state = location.state as { reason?: string } | null;
+    if (state?.reason === 'session-timeout') {
+      return 'Session timed out due to inactivity. Please sign in again.';
+    }
+    return null;
+  }, [location.state]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -53,6 +62,11 @@ export const LoginPage = () => {
         <h1 className="mb-2 text-2xl font-semibold text-white">ECIMS 2.0 Admin Console</h1>
         <p className="mb-6 text-sm text-slate-400">Endpoint Configuration Incident Mgmt Sys</p>
         <div className="space-y-4">
+          {timeoutNotice && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              {timeoutNotice}
+            </p>
+          )}
           <input
             className="input"
             value={username}

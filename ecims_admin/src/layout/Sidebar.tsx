@@ -1,4 +1,4 @@
-﻿import type { IconType } from 'react-icons';
+import type { IconType } from 'react-icons';
 import {
   FiActivity,
   FiAlertTriangle,
@@ -20,6 +20,8 @@ import {
   FiTool,
   FiUsers,
   FiUserCheck,
+  FiX,
+  FiZap,
 } from 'react-icons/fi';
 import { NavLink } from 'react-router-dom';
 import { MobileSidebarOverlay } from '../components/MobileSidebarOverlay';
@@ -88,6 +90,12 @@ const adminOpsGroups: SidebarGroup[] = [
   },
 ];
 
+const quickAccess: Array<{ label: string; to: string; hotkey: string }> = [
+  { label: 'Dashboard', to: '/', hotkey: 'Alt+1' },
+  { label: 'Alerts', to: '/alerts', hotkey: 'Alt+3' },
+  { label: 'Remote Actions', to: '/ops/remote-actions', hotkey: 'Alt+4' },
+];
+
 const navClass = ({ isActive }: { isActive: boolean }, collapsed: boolean) =>
   `group flex h-10 items-center rounded-xl px-3 text-sm font-medium transition-colors ${
     isActive
@@ -109,9 +117,9 @@ export const Sidebar = ({
       <MobileSidebarOverlay open={mobileOpen} onClose={onCloseMobile} />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex h-screen border-r border-slate-200 bg-white shadow-xl shadow-slate-900/10 transition-all duration-300 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/40 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen border-r border-slate-200 bg-white shadow-xl shadow-slate-900/10 transition-all duration-300 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/40 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
-        } w-[280px] lg:translate-x-0 ${collapsed ? 'lg:w-[96px]' : 'lg:w-[280px]'}`}
+        } w-[280px] will-change-transform lg:translate-x-0 ${collapsed ? 'lg:w-[96px]' : 'lg:w-[280px]'}`}
       >
         <div className="flex w-full flex-col">
           <div className="flex h-16 items-center justify-between border-b border-slate-200 px-4 dark:border-slate-800">
@@ -121,22 +129,30 @@ export const Sidebar = ({
               </div>
               {!collapsed && (
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold tracking-wide text-slate-900 dark:text-slate-100">
-                    ECIMS 2.0
-                  </p>
+                  <p className="truncate text-sm font-semibold tracking-wide text-slate-900 dark:text-slate-100">ECIMS 2.0</p>
                   <p className="truncate text-xs text-slate-500 dark:text-slate-400">Security Ops Control Plane</p>
                 </div>
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={onToggleCollapse}
-              className="hidden h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100 lg:inline-flex"
-              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              {collapsed ? <FiChevronRight /> : <FiChevronLeft />}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onCloseMobile}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100 lg:hidden"
+                aria-label="Close sidebar"
+              >
+                <FiX />
+              </button>
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                className="hidden h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100 lg:inline-flex"
+                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              >
+                {collapsed ? <FiChevronRight /> : <FiChevronLeft />}
+              </button>
+            </div>
           </div>
 
           <nav className="flex-1 space-y-4 overflow-y-auto p-3">
@@ -168,34 +184,66 @@ export const Sidebar = ({
               const visibleItems = group.items.filter((item) => !(item.requiresAdmin && !isAdmin));
               if (!visibleItems.length) return null;
               return (
-              <div key={group.label} className="space-y-1.5">
-                {!collapsed && (
-                  <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
-                    {group.label}
-                  </p>
-                )}
-                {visibleItems.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      title={collapsed ? item.label : undefined}
-                      onClick={onCloseMobile}
-                      className={(state) => navClass(state, collapsed)}
-                    >
-                      <Icon className="text-base" />
-                      {!collapsed && <span className="truncate">{item.label}</span>}
-                    </NavLink>
-                  );
-                })}
-              </div>
-            );
+                <div key={group.label} className="space-y-1.5">
+                  {!collapsed && (
+                    <p className="px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">
+                      {group.label}
+                    </p>
+                  )}
+                  {visibleItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        title={collapsed ? item.label : undefined}
+                        onClick={onCloseMobile}
+                        className={(state) => navClass(state, collapsed)}
+                      >
+                        <Icon className="text-base" />
+                        {!collapsed && <span className="truncate">{item.label}</span>}
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              );
             })}
           </nav>
+
+          <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+            {!collapsed ? (
+              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-700 dark:bg-slate-900">
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                  <FiZap />
+                  Shortcuts
+                </p>
+                {quickAccess.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    onClick={onCloseMobile}
+                    className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs text-slate-600 transition hover:bg-white hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                  >
+                    <span>{item.label}</span>
+                    <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      {item.hotkey}
+                    </span>
+                  </NavLink>
+                ))}
+              </div>
+            ) : (
+              <div className="flex justify-center">
+                <span
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"
+                  title="Use Alt+1..Alt+6 for quick navigation"
+                >
+                  <FiZap />
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
     </>
   );
 };
-

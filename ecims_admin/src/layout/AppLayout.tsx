@@ -1,6 +1,7 @@
-﻿import { useState } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Container } from '../components/ui/Container';
+import { useSessionTimeout } from '../hooks/useSessionTimeout';
 import { useAuth } from '../store/AuthContext';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
@@ -9,29 +10,65 @@ export const AppLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const { user, clearSession } = useAuth();
+  const { token, user, clearSession } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleLogout = () => {
-    clearSession();
-    navigate('/login', { replace: true });
-  };
+  const sessionTimeoutSeconds = useMemo(() => Number(import.meta.env.VITE_SESSION_TIMEOUT_SECONDS ?? 900), []);
+
+  const handleLogout = useCallback(
+    (reason: 'manual' | 'timeout' = 'manual') => {
+      clearSession();
+      navigate('/login', {
+        replace: true,
+        state: reason === 'timeout' ? { reason: 'session-timeout' } : undefined,
+      });
+    },
+    [clearSession, navigate],
+  );
+
+  const session = useSessionTimeout({
+    enabled: Boolean(token && user),
+    timeoutSeconds: sessionTimeoutSeconds,
+    onTimeout: () => handleLogout('timeout'),
+  });
+
+  const toggleCollapse = useCallback(() => {
+    setCollapsed((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [mobileOpen]);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="min-h-screen overflow-x-clip bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <Sidebar
         collapsed={collapsed}
         mobileOpen={mobileOpen}
         onCloseMobile={() => setMobileOpen(false)}
-        onToggleCollapse={() => setCollapsed((prev) => !prev)}
+        onToggleCollapse={toggleCollapse}
       />
 
       <div className={`app-shell ${collapsed ? 'app-shell-collapsed' : 'app-shell-expanded'}`}>
         <Topbar
           onOpenSidebar={() => setMobileOpen(true)}
+          onToggleCollapse={toggleCollapse}
+          collapsed={collapsed}
           userName={user?.username ?? 'Operator'}
           userRole={user?.role ?? 'Administrator'}
-          onLogout={handleLogout}
+          sessionRemainingSeconds={session.remainingSeconds}
+          sessionIsWarning={session.isWarning}
+          onLogout={() => handleLogout('manual')}
         />
 
         <main className="px-4 py-6 sm:px-6 lg:px-8">
@@ -45,4 +82,3 @@ export const AppLayout = () => {
     </div>
   );
 };
-

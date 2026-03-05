@@ -149,6 +149,29 @@ export interface RemoteActionTaskCreateResponse {
   created: boolean;
 }
 
+export interface FleetDriftItem {
+  agent_id: number;
+  agent_name: string;
+  policy_hash_applied?: string | null;
+  expected_policy_hash?: string | null;
+  enforcement_mode?: string | null;
+  expected_mode?: string | null;
+  adapter_status?: string | null;
+  last_reconcile_time?: string | null;
+  agent_version?: string | null;
+}
+
+export interface FleetDriftResponse {
+  count: number;
+  items: FleetDriftItem[];
+}
+
+export interface DeviceRolloutStatusResponse {
+  kill_switch: boolean;
+  rollout: Record<string, number>;
+  command_backlog: Record<string, number>;
+}
+
 export type MaintenanceScheduleStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED';
 export type MaintenanceScheduleRecurrence = 'DAILY' | 'WEEKLY';
 export type MaintenanceOrchestrationMode =

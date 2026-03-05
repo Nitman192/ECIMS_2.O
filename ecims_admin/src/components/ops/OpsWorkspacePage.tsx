@@ -101,7 +101,7 @@ export const OpsWorkspacePage = <T,>({
     setConfirmOpen(false);
     pushToast({
       title: `${primaryActionLabel} queued`,
-      description: 'Placeholder interaction complete. API wiring is scheduled in next phase.',
+      description: 'Action template triggered. Connect this control to your target API workflow.',
       tone: 'info',
     });
   };
@@ -198,8 +198,7 @@ export const OpsWorkspacePage = <T,>({
         onConfirm={triggerPlaceholderAction}
       >
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          This control is scaffolded in Phase 1. Backend command validation, idempotency, and audit writes will be
-          connected in upcoming phases.
+          This action template is ready for integration with validation, idempotency, and audit-ready backend handlers.
         </p>
       </Modal>
 

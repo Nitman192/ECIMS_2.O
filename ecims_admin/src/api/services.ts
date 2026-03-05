@@ -16,10 +16,12 @@ import type {
   ChangeRequestDecisionPayload,
   ChangeRequestItem,
   ChangeRequestListResponse,
+  DeviceRolloutStatusResponse,
   FeatureFlag,
   FeatureFlagCreatePayload,
   FeatureFlagListResponse,
   FeatureFlagSetStatePayload,
+  FleetDriftResponse,
   EnrollmentToken,
   EvidenceCustodyEventCreatePayload,
   EvidenceCustodyEvent,
@@ -76,6 +78,8 @@ export const AuthApi = {
 
 export const CoreApi = {
   metrics: () => api.get('/admin/metrics'),
+  deviceRolloutStatus: () => api.get<DeviceRolloutStatusResponse>('/admin/device/rollout/status'),
+  fleetDrift: () => api.get<FleetDriftResponse>('/admin/device/fleet/drift'),
   agents: () => api.get<Agent[]>('/agents'),
   alerts: () => api.get<Alert[]>('/alerts'),
   securityStatus: () => api.get('/security/status'),
