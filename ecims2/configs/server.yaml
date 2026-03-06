@@ -71,3 +71,12 @@ allow_token_max_duration_minutes: 240
 maintenance_scheduler_enabled: true
 maintenance_scheduler_interval_sec: 60
 maintenance_scheduler_batch_limit: 20
+
+# Agent auto-discovery (LAN broadcast + optional mDNS)
+discovery_enabled: false
+discovery_udp_port: 40110
+discovery_server_url: ""
+discovery_http_port: 8010
+discovery_mdns_enabled: false
+discovery_mdns_service_name: "ecims-server"
+discovery_mdns_service_type: "_ecims._tcp.local."

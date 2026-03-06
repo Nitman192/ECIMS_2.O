@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -16,6 +16,13 @@ class AgentConfig:
     runtime_id: str | None = None
     state_dir: str = ".ecims_agent_runtime"
     enrollment_token: str | None = None
+    auto_discovery_enabled: bool = False
+    discovery_timeout_sec: int = 3
+    discovery_lan_broadcast_enabled: bool = True
+    discovery_udp_port: int = 40110
+    discovery_broadcast_targets: list[str] = field(default_factory=lambda: ["255.255.255.255"])
+    discovery_mdns_enabled: bool = True
+    discovery_mdns_service_type: str = "_ecims._tcp.local."
     agent_client_cert_path: str | None = None
     agent_client_key_path: str | None = None
     agent_pfx_path: str | None = None
@@ -34,8 +41,17 @@ class AgentConfig:
 
 def load_config(path: str) -> AgentConfig:
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    discovery_targets_raw = raw.get("discovery_broadcast_targets")
+    if isinstance(discovery_targets_raw, list):
+        discovery_targets = [str(item).strip() for item in discovery_targets_raw if str(item).strip()]
+    elif isinstance(discovery_targets_raw, str):
+        discovery_targets = [item.strip() for item in discovery_targets_raw.split(",") if item.strip()]
+    else:
+        discovery_targets = ["255.255.255.255"]
+    if not discovery_targets:
+        discovery_targets = ["255.255.255.255"]
     return AgentConfig(
-        server_url=raw["server_url"].rstrip("/"),
+        server_url=str(raw.get("server_url", "")).rstrip("/"),
         agent_name=raw["agent_name"],
         hostname=raw.get("hostname", "unknown-host"),
         monitored_paths=raw.get("monitored_paths", []),
@@ -43,6 +59,13 @@ def load_config(path: str) -> AgentConfig:
         runtime_id=raw.get("runtime_id"),
         state_dir=str(raw.get("state_dir", ".ecims_agent_runtime")),
         enrollment_token=raw.get("enrollment_token"),
+        auto_discovery_enabled=bool(raw.get("auto_discovery_enabled", False)),
+        discovery_timeout_sec=max(1, int(raw.get("discovery_timeout_sec", 3))),
+        discovery_lan_broadcast_enabled=bool(raw.get("discovery_lan_broadcast_enabled", True)),
+        discovery_udp_port=max(1, int(raw.get("discovery_udp_port", 40110))),
+        discovery_broadcast_targets=discovery_targets,
+        discovery_mdns_enabled=bool(raw.get("discovery_mdns_enabled", True)),
+        discovery_mdns_service_type=str(raw.get("discovery_mdns_service_type", "_ecims._tcp.local.")),
         agent_client_cert_path=raw.get("agent_client_cert_path"),
         agent_client_key_path=raw.get("agent_client_key_path"),
         agent_pfx_path=raw.get("agent_pfx_path"),

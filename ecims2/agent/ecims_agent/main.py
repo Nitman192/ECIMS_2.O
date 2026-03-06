@@ -8,6 +8,7 @@ from ecims_agent.api_client import ApiClient, TLSClientConfig
 from ecims_agent.config import load_config
 from ecims_agent.device_adapter import select_adapter
 from ecims_agent.device_control import DeviceControlManager
+from ecims_agent.discovery import resolve_server_url
 from ecims_agent.runtime import RuntimeLock, build_runtime_context, configure_runtime_storage
 from ecims_agent.scanner import scan_paths
 from ecims_agent.storage import load_state, save_state
@@ -29,6 +30,8 @@ def _with_runtime_suffix(value: str, runtime_id: str, max_length: int) -> str:
 
 def run(config_path: str, runtime_id_override: str | None = None, state_dir_override: str | None = None) -> None:
     config = load_config(config_path)
+    server_url = resolve_server_url(config)
+    logger.info("Server endpoint resolved: %s", server_url)
     runtime_id = runtime_id_override or config.runtime_id or config.agent_name
     state_dir = state_dir_override or config.state_dir
     runtime = build_runtime_context(state_dir=state_dir, runtime_id=runtime_id)
@@ -40,7 +43,7 @@ def run(config_path: str, runtime_id_override: str | None = None, state_dir_over
 
     state = load_state()
     client = ApiClient(
-        config.server_url,
+        server_url,
         TLSClientConfig(
             cert_path=config.agent_client_cert_path,
             key_path=config.agent_client_key_path,

@@ -8,6 +8,16 @@ enrollment_token: null
 runtime_id: "endpoint-local-dev"
 state_dir: ".ecims_agent_runtime"
 
+# Local discovery defaults (useful if server URL changes on LAN).
+auto_discovery_enabled: true
+discovery_timeout_sec: 3
+discovery_lan_broadcast_enabled: true
+discovery_udp_port: 40110
+discovery_broadcast_targets:
+  - "255.255.255.255"
+discovery_mdns_enabled: true
+discovery_mdns_service_type: "_ecims._tcp.local."
+
 # Local-dev mode (no TLS pinning). Use only for local testing.
 agent_client_cert_path: null
 agent_client_key_path: null

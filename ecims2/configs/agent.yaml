@@ -1,4 +1,4 @@
-server_url: "https://127.0.0.1:8000"
+server_url: "https://<SERVER_IP>:8010"
 agent_name: "endpoint-01"
 hostname: "host-01"
 monitored_paths:
@@ -7,6 +7,16 @@ scan_interval_sec: 30
 enrollment_token: null
 runtime_id: "endpoint-01"
 state_dir: ".ecims_agent_runtime"
+
+# Optional auto-discovery when server_url is missing/unreachable.
+auto_discovery_enabled: false
+discovery_timeout_sec: 3
+discovery_lan_broadcast_enabled: true
+discovery_udp_port: 40110
+discovery_broadcast_targets:
+  - "255.255.255.255"
+discovery_mdns_enabled: true
+discovery_mdns_service_type: "_ecims._tcp.local."
 
 # mTLS client auth (use either PEM pair or PFX)
 agent_client_cert_path: "configs/tls/agent.crt"

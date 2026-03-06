@@ -179,6 +179,28 @@ PYTHONPATH=agent python -m ecims_agent.main --config configs/agent.local.dev.yam
 PYTHONPATH=agent python -m ecims_agent.main --config configs/agent.local.dev.yaml --runtime-id client-b --state-dir .ecims_agent_runtime
 ```
 
+### Agent auto-discovery (LAN broadcast + mDNS)
+
+Agent can resolve server endpoint automatically when `auto_discovery_enabled: true` in `configs/agent.yaml` or `configs/agent.local.dev.yaml`.
+
+Relevant agent config keys:
+- `auto_discovery_enabled`
+- `discovery_lan_broadcast_enabled`
+- `discovery_udp_port`
+- `discovery_broadcast_targets`
+- `discovery_mdns_enabled`
+- `discovery_mdns_service_type`
+
+Server-side responder keys (in `configs/server.yaml` / env):
+- `discovery_enabled`
+- `discovery_udp_port`
+- `discovery_server_url`
+- `discovery_mdns_enabled`
+- `discovery_mdns_service_name`
+- `discovery_mdns_service_type`
+
+For local-dev script flow, discovery is enabled on UDP `40110` and advertises `http://127.0.0.1:8010`.
+
 ## API Endpoints
 
 ### Existing Phase 1

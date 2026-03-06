@@ -24,6 +24,7 @@ from app.licensing_core.state import set_license_state
 from app.services.audit_service import AuditService
 from app.security.storage_crypto import get_crypto_status
 from app.services.maintenance_schedule_service import MaintenanceScheduleService
+from app.services.discovery_service import DiscoveryService
 from app.services.user_service import UserService
 from app.utils.request_context import REQUEST_ID
 
@@ -366,11 +367,13 @@ def on_startup() -> None:
     logger.info("License status valid=%s reason=%s", license_state.valid, license_state.reason)
     logger.info("Storage encryption enabled=%s key_id=%s reason=%s", crypto_status.encryption_enabled, crypto_status.active_key_id, crypto_status.reason)
     _start_maintenance_scheduler()
+    DiscoveryService.start()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
     _stop_maintenance_scheduler()
+    DiscoveryService.stop()
 
 
 @app.get("/health")

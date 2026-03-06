@@ -65,6 +65,14 @@ class Settings(BaseModel):
     maintenance_scheduler_interval_sec: int = Field(default=60, ge=1, le=3600)
     maintenance_scheduler_batch_limit: int = Field(default=20, ge=1, le=100)
 
+    discovery_enabled: bool = False
+    discovery_udp_port: int = Field(default=40110, ge=1, le=65535)
+    discovery_server_url: str = ""
+    discovery_http_port: int = Field(default=8010, ge=1, le=65535)
+    discovery_mdns_enabled: bool = False
+    discovery_mdns_service_name: str = "ecims-server"
+    discovery_mdns_service_type: str = "_ecims._tcp.local."
+
 
 def _apply_env_override(raw: dict[str, Any], field: str, env_var: str) -> None:
     value = os.getenv(env_var)
@@ -109,6 +117,11 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "data_key_env", "ECIMS_DATA_KEY_ENV")
     _apply_env_override(raw, "maintenance_scheduler_interval_sec", "ECIMS_MAINTENANCE_SCHEDULER_INTERVAL_SEC")
     _apply_env_override(raw, "maintenance_scheduler_batch_limit", "ECIMS_MAINTENANCE_SCHEDULER_BATCH_LIMIT")
+    _apply_env_override(raw, "discovery_udp_port", "ECIMS_DISCOVERY_UDP_PORT")
+    _apply_env_override(raw, "discovery_server_url", "ECIMS_DISCOVERY_SERVER_URL")
+    _apply_env_override(raw, "discovery_http_port", "ECIMS_DISCOVERY_HTTP_PORT")
+    _apply_env_override(raw, "discovery_mdns_service_name", "ECIMS_DISCOVERY_MDNS_SERVICE_NAME")
+    _apply_env_override(raw, "discovery_mdns_service_type", "ECIMS_DISCOVERY_MDNS_SERVICE_TYPE")
 
     env_data_encryption_enabled = os.getenv("ECIMS_DATA_ENCRYPTION_ENABLED")
     if env_data_encryption_enabled:
@@ -125,5 +138,13 @@ def get_settings() -> Settings:
     env_maintenance_scheduler_enabled = os.getenv("ECIMS_MAINTENANCE_SCHEDULER_ENABLED")
     if env_maintenance_scheduler_enabled:
         raw["maintenance_scheduler_enabled"] = env_maintenance_scheduler_enabled.strip().lower() in {"1", "true", "yes"}
+
+    env_discovery_enabled = os.getenv("ECIMS_DISCOVERY_ENABLED")
+    if env_discovery_enabled:
+        raw["discovery_enabled"] = env_discovery_enabled.strip().lower() in {"1", "true", "yes"}
+
+    env_discovery_mdns_enabled = os.getenv("ECIMS_DISCOVERY_MDNS_ENABLED")
+    if env_discovery_mdns_enabled:
+        raw["discovery_mdns_enabled"] = env_discovery_mdns_enabled.strip().lower() in {"1", "true", "yes"}
 
     return Settings(**raw)

@@ -32,3 +32,12 @@ device_allow_token_private_key_path: configs/device_allow_token_private.pem
 data_encryption_enabled: false
 data_key_path: configs/data_keys.json
 data_key_env: ECIMS_DATA_KEY_B64
+
+# Optional LAN auto-discovery responder for agents
+discovery_enabled: false
+discovery_udp_port: 40110
+discovery_server_url: https://ecims-server.local:8010
+discovery_http_port: 8010
+discovery_mdns_enabled: false
+discovery_mdns_service_name: ecims-server
+discovery_mdns_service_type: _ecims._tcp.local.

@@ -16,5 +16,8 @@ set PYTHONPATH=server
 set ECIMS_ENVIRONMENT=dev
 set ECIMS_MTLS_ENABLED=0
 set ECIMS_MTLS_REQUIRED=0
+set ECIMS_DISCOVERY_ENABLED=1
+set ECIMS_DISCOVERY_SERVER_URL=http://127.0.0.1:8010
+set ECIMS_DISCOVERY_UDP_PORT=40110
 echo [INFO] Starting ECIMS server on http://127.0.0.1:8010
 ".venv\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port 8010 --reload

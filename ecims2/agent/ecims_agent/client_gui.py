@@ -12,6 +12,7 @@ from tkinter import scrolledtext, ttk
 import requests
 
 from ecims_agent.config import load_config
+from ecims_agent.discovery import resolve_server_url
 from ecims_agent.runtime import build_runtime_context
 
 
@@ -169,9 +170,10 @@ class ClientGUI:
         try:
             config_path = self.config_path.get().strip() or "configs/agent.local.dev.yaml"
             cfg = load_config(config_path)
-            response = requests.get(f"{cfg.server_url}/health", timeout=6)
+            server_url = resolve_server_url(cfg)
+            response = requests.get(f"{server_url}/health", timeout=6)
             response.raise_for_status()
-            self.last_health.set(f"{cfg.server_url}/health -> {response.status_code}")
+            self.last_health.set(f"{server_url}/health -> {response.status_code}")
             self._append_log(f"[INFO] Health check OK ({response.status_code})")
         except Exception as exc:  # noqa: BLE001
             self.last_health.set(f"failed ({exc})")
@@ -179,7 +181,10 @@ class ClientGUI:
 
     def sync_server_status(self) -> None:
         try:
-            _, server_url, _, runtime_root = self._resolve_runtime()
+            config_path = self.config_path.get().strip() or "configs/agent.local.dev.yaml"
+            cfg = load_config(config_path)
+            server_url = resolve_server_url(cfg)
+            _, _, _, runtime_root = self._resolve_runtime()
             state = self._load_agent_state(runtime_root)
             agent_id = state.get("agent_id")
             token = state.get("token")

@@ -69,6 +69,12 @@ npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
 ## Step 3: Start Agents (State-Isolated Parallel Runtime)
+Auto-discovery defaults (`configs/agent.local.dev.yaml`) already enabled:
+- LAN broadcast (`discovery_udp_port: 40110`)
+- mDNS lookup (`_ecims._tcp.local.`) when available
+
+Isliye server URL change ho tab bhi agent discovery attempt karega before fallback.
+
 Single runtime:
 ```cmd
 cd /d X:\ECIMS_2.O-main\ecims2
