@@ -699,8 +699,15 @@ cd ecims2
 ./scripts/build_agent_windows_package.sh
 ```
 
+Windows EXE bundles (server + client GUI + client agent):
+```bat
+cd ecims2
+scripts\build_windows_executables.cmd
+```
+
 Server package output: `dist/ecims_server/`.
 Agent package output: `dist/ecims_agent_windows/`.
+Windows EXE output: `dist/windows_executables/server/` and `dist/windows_executables/client/`.
 
 By default, server package excludes allow-token private keys. To include explicitly:
 ```bash

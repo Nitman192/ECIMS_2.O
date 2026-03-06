@@ -217,20 +217,35 @@ class ClientGUI:
         try:
             config_path, _, runtime_id, _ = self._resolve_runtime()
             state_dir = self.state_dir.get().strip() or ".ecims_agent_runtime"
-            cmd = [
-                sys.executable,
-                "-m",
-                "ecims_agent.main",
-                "--config",
-                config_path,
-                "--runtime-id",
-                runtime_id,
-                "--state-dir",
-                state_dir,
-            ]
             env = os.environ.copy()
-            env["PYTHONPATH"] = "agent"
-            workdir = Path(__file__).resolve().parents[2]
+            if getattr(sys, "frozen", False):
+                workdir = Path(sys.executable).resolve().parent
+                agent_exe = workdir / "ecims_agent.exe"
+                if not agent_exe.exists():
+                    raise RuntimeError(f"Missing agent executable: {agent_exe}")
+                cmd = [
+                    str(agent_exe),
+                    "--config",
+                    config_path,
+                    "--runtime-id",
+                    runtime_id,
+                    "--state-dir",
+                    state_dir,
+                ]
+            else:
+                cmd = [
+                    sys.executable,
+                    "-m",
+                    "ecims_agent.main",
+                    "--config",
+                    config_path,
+                    "--runtime-id",
+                    runtime_id,
+                    "--state-dir",
+                    state_dir,
+                ]
+                env["PYTHONPATH"] = "agent"
+                workdir = Path(__file__).resolve().parents[2]
             self.process = subprocess.Popen(
                 cmd,
                 cwd=str(workdir),

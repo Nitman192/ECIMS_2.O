@@ -27,6 +27,52 @@ cd /d X:\ECIMS_2.O-main\ecims_admin
 npm install
 ```
 
+## Step 0: Build Shareable EXE Packages (Server + Client)
+### CMD
+```cmd
+cd /d X:\ECIMS_2.O-main\ecims2
+scripts\build_windows_executables.cmd
+```
+
+### PowerShell
+```powershell
+Set-Location X:\ECIMS_2.O-main\ecims2
+.\scripts\build_windows_executables.cmd
+```
+
+Build output:
+```text
+ecims2\dist\windows_executables\server
+ecims2\dist\windows_executables\client
+```
+
+2-PC deployment (simple LAN mode):
+
+Server PC par:
+```cmd
+cd /d <copied_path>\server
+start_server.cmd
+```
+
+Multi-NIC ya wrong advertised IP case me explicitly set karo:
+```cmd
+cd /d <copied_path>\server
+set ECIMS_DISCOVERY_SERVER_URL=http://<SERVER_LAN_IP>:8010
+start_server.cmd
+```
+
+Client PC par:
+```cmd
+cd /d <copied_path>\client
+start_client_gui.cmd client-a
+```
+
+Headless client service/test mode:
+```cmd
+cd /d <copied_path>\client
+start_agent.cmd client-a
+```
+
 ## Step 1: Start Backend (Port 8010)
 ```cmd
 cd /d X:\ECIMS_2.O-main\ecims2
