@@ -827,6 +827,50 @@ export interface Agent {
   device_mode_override?: string | null;
 }
 
+export interface AgentSelfStatusAgent {
+  id: number;
+  hostname: string;
+  name: string;
+  registered_at?: string | null;
+  last_seen?: string | null;
+  status: string;
+  agent_revoked: boolean;
+  revoked_at?: string | null;
+  revocation_reason?: string | null;
+  device_mode_override?: string | null;
+  device_tags?: string | null;
+}
+
+export interface AgentSelfStatusDeviceStatus {
+  policy_hash_applied?: string | null;
+  enforcement_mode?: string | null;
+  adapter_status?: string | null;
+  last_reconcile_time?: string | null;
+  agent_version?: string | null;
+  runtime_id?: string | null;
+  state_root?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AgentSelfStatusPendingCommand {
+  id: number;
+  type: string;
+  created_at: string;
+  payload: Record<string, unknown>;
+}
+
+export interface AgentSelfStatusResponse {
+  agent: AgentSelfStatusAgent;
+  device_status: AgentSelfStatusDeviceStatus | null;
+  command_counts: {
+    pending: number;
+    applied: number;
+    failed: number;
+  };
+  pending_commands: AgentSelfStatusPendingCommand[];
+  server_time_utc: string;
+}
+
 export interface Alert {
   id: number;
   agent_id?: number;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 
 from app.db.database import get_db
@@ -148,6 +149,100 @@ class AgentService:
             return result
 
     @staticmethod
+    def get_agent_self_status(agent_id: int) -> dict | None:
+        with get_db() as conn:
+            agent = conn.execute(
+                """
+                SELECT
+                    id, name, hostname, registered_at, last_seen, status,
+                    agent_revoked, revoked_at, revocation_reason, device_mode_override, device_tags
+                FROM agents
+                WHERE id = ?
+                """,
+                (agent_id,),
+            ).fetchone()
+            if not agent:
+                return None
+
+            device_status = conn.execute(
+                """
+                SELECT
+                    policy_hash_applied, enforcement_mode, adapter_status, last_reconcile_time,
+                    agent_version, runtime_id, state_root, updated_at
+                FROM agent_device_status
+                WHERE agent_id = ?
+                """,
+                (agent_id,),
+            ).fetchone()
+
+            command_rows = conn.execute(
+                """
+                SELECT status, COUNT(*) AS c
+                FROM agent_commands
+                WHERE agent_id = ?
+                GROUP BY status
+                """,
+                (agent_id,),
+            ).fetchall()
+            command_counts = {str(row["status"]).lower(): int(row["c"]) for row in command_rows}
+
+            pending_rows = conn.execute(
+                """
+                SELECT id, type, created_at, payload_json
+                FROM agent_commands
+                WHERE agent_id = ? AND status = 'PENDING'
+                ORDER BY id ASC
+                LIMIT 10
+                """,
+                (agent_id,),
+            ).fetchall()
+
+            pending_preview = [
+                {
+                    "id": int(row["id"]),
+                    "type": row["type"],
+                    "created_at": row["created_at"],
+                    "payload": json.loads(row["payload_json"] or "{}"),
+                }
+                for row in pending_rows
+            ]
+
+        return {
+            "agent": {
+                "id": int(agent["id"]),
+                "name": agent["name"],
+                "hostname": agent["hostname"],
+                "registered_at": agent["registered_at"],
+                "last_seen": agent["last_seen"],
+                "status": agent["status"],
+                "agent_revoked": bool(agent["agent_revoked"]),
+                "revoked_at": agent["revoked_at"],
+                "revocation_reason": agent["revocation_reason"],
+                "device_mode_override": agent["device_mode_override"],
+                "device_tags": agent["device_tags"],
+            },
+            "device_status": (
+                {
+                    "policy_hash_applied": device_status["policy_hash_applied"],
+                    "enforcement_mode": device_status["enforcement_mode"],
+                    "adapter_status": device_status["adapter_status"],
+                    "last_reconcile_time": device_status["last_reconcile_time"],
+                    "agent_version": device_status["agent_version"],
+                    "runtime_id": device_status["runtime_id"],
+                    "state_root": device_status["state_root"],
+                    "updated_at": device_status["updated_at"],
+                }
+                if device_status
+                else None
+            ),
+            "command_counts": {
+                "pending": int(command_counts.get("pending", 0)),
+                "applied": int(command_counts.get("applied", 0)),
+                "failed": int(command_counts.get("failed", 0)),
+            },
+            "pending_commands": pending_preview,
+            "server_time_utc": utcnow().isoformat(),
+        }
 
     @staticmethod
     def set_device_mode_override(agent_id: int, mode: str | None) -> bool:

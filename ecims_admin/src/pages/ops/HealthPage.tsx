@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FiActivity, FiRefreshCw, FiSearch, FiShield } from 'react-icons/fi';
+import { FiActivity, FiEye, FiRefreshCw, FiSearch, FiShield } from 'react-icons/fi';
 import { CoreApi } from '../../api/services';
 import { getApiErrorMessage } from '../../api/utils';
 import { useToastStack } from '../../hooks/useToastStack';
@@ -11,7 +11,7 @@ import { ErrorState } from '../../components/ui/ErrorState';
 import { LoadingState } from '../../components/ui/LoadingState';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ToastStack } from '../../components/ui/Toast';
-import type { Agent, FleetDriftItem } from '../../types';
+import type { Agent, AgentSelfStatusResponse, FleetDriftItem } from '../../types';
 
 type HealthRow = {
   agent_id: number;
@@ -52,7 +52,19 @@ const mtlsBadgeClass = (value: HealthRow['mtls']) => {
   return 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300';
 };
 
-const columns: DataTableColumn<HealthRow>[] = [
+const formatDateTime = (value?: string | null) => (value ? new Date(value).toLocaleString() : '-');
+
+const formatText = (value?: string | null) => (value && value.trim() ? value : '-');
+
+const toPrettyJson = (value: Record<string, unknown>) => {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return '{}';
+  }
+};
+
+const baseColumns: DataTableColumn<HealthRow>[] = [
   {
     key: 'host',
     header: 'Host',
@@ -108,6 +120,10 @@ export const HealthPage = () => {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [driftFilter, setDriftFilter] = useState('all');
+  const [selectedAgentId, setSelectedAgentId] = useState<number | null>(null);
+  const [selfStatus, setSelfStatus] = useState<AgentSelfStatusResponse | null>(null);
+  const [selfStatusView, setSelfStatusView] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [selfStatusError, setSelfStatusError] = useState('');
   const { toasts, pushToast, dismissToast } = useToastStack({ durationMs: 4000 });
 
   const loadHealth = async () => {
@@ -154,6 +170,12 @@ export const HealthPage = () => {
       });
 
       setRows(nextRows);
+      if (selectedAgentId && !nextRows.some((row) => row.agent_id === selectedAgentId)) {
+        setSelectedAgentId(null);
+        setSelfStatus(null);
+        setSelfStatusView('idle');
+        setSelfStatusError('');
+      }
       setStatus('ready');
     } catch (error: unknown) {
       setRows([]);
@@ -180,6 +202,21 @@ export const HealthPage = () => {
   }, [rows, query, statusFilter, driftFilter]);
 
   const driftedAgentIds = useMemo(() => rows.filter((item) => item.drift).map((item) => item.agent_id), [rows]);
+
+  const loadSelfStatus = async (agentId: number) => {
+    setSelectedAgentId(agentId);
+    setSelfStatusView('loading');
+    setSelfStatusError('');
+    try {
+      const response = await CoreApi.getAgentSelfStatus(agentId);
+      setSelfStatus(response.data);
+      setSelfStatusView('ready');
+    } catch (error: unknown) {
+      setSelfStatus(null);
+      setSelfStatusView('error');
+      setSelfStatusError(getApiErrorMessage(error, 'Unable to load agent self-status snapshot'));
+    }
+  };
 
   const pushPolicyToDrifted = async () => {
     if (!driftedAgentIds.length) {
@@ -212,6 +249,26 @@ export const HealthPage = () => {
 
   const onlineCount = rows.filter((row) => row.status === 'ONLINE').length;
   const driftCount = rows.filter((row) => row.drift).length;
+  const tableColumns: DataTableColumn<HealthRow>[] = [
+    ...baseColumns,
+    {
+      key: 'actions',
+      header: 'Actions',
+      render: (row) => {
+        const isSelected = selectedAgentId === row.agent_id;
+        return (
+          <button
+            type="button"
+            className={`btn-secondary h-8 px-2 text-xs ${isSelected ? '!border-cyan-500 !text-cyan-700 dark:!text-cyan-300' : ''}`}
+            onClick={() => void loadSelfStatus(row.agent_id)}
+          >
+            <FiEye className="mr-1 text-xs" />
+            {isSelected ? 'Reload' : 'Inspect'}
+          </button>
+        );
+      },
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -294,7 +351,7 @@ export const HealthPage = () => {
       <Card title="Fleet Health Matrix" subtitle="Agent posture with drift and control-plane remediation path.">
         {status === 'loading' && <LoadingState title="Loading fleet health" description="Collecting posture from agents and drift APIs." />}
         {status === 'error' && <ErrorState description={errorMessage} onRetry={() => void loadHealth()} />}
-        {status === 'ready' && filteredRows.length > 0 && <DataTable columns={columns} rows={filteredRows} rowKey={(row) => String(row.agent_id)} />}
+        {status === 'ready' && filteredRows.length > 0 && <DataTable columns={tableColumns} rows={filteredRows} rowKey={(row) => String(row.agent_id)} />}
         {status === 'ready' && filteredRows.length === 0 && (
           <EmptyState
             title="No health records found"
@@ -306,6 +363,109 @@ export const HealthPage = () => {
               setDriftFilter('all');
             }}
           />
+        )}
+      </Card>
+
+      <Card title="Fleet Drill-down" subtitle="AGR self-status snapshot with runtime isolation and pending command queue.">
+        {selfStatusView === 'idle' && (
+          <EmptyState
+            title="Select agent to inspect"
+            description="Fleet Health Matrix mein kisi bhi row ka Inspect button click karo to live self-status snapshot yahan render hoga."
+          />
+        )}
+        {selfStatusView === 'loading' && (
+          <LoadingState
+            title="Loading self-status snapshot"
+            description={selectedAgentId ? `Fetching data for agent #${selectedAgentId}.` : 'Fetching agent self-status snapshot.'}
+          />
+        )}
+        {selfStatusView === 'error' && (
+          <ErrorState
+            description={selfStatusError}
+            onRetry={selectedAgentId ? () => void loadSelfStatus(selectedAgentId) : undefined}
+          />
+        )}
+        {selfStatusView === 'ready' && selfStatus && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
+              <div>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Agent #{selfStatus.agent.id}: {selfStatus.agent.hostname}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {selfStatus.agent.name} | Server snapshot: {formatDateTime(selfStatus.server_time_utc)}
+                </p>
+              </div>
+              <button type="button" className="btn-secondary h-9 px-3 text-xs" onClick={() => void loadSelfStatus(selfStatus.agent.id)}>
+                <FiRefreshCw className="mr-1 text-xs" />
+                Refresh Snapshot
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-700 xl:col-span-2">
+                <p className="font-semibold text-slate-900 dark:text-slate-100">Agent State</p>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <p className="text-slate-600 dark:text-slate-300">Status: {formatText(selfStatus.agent.status)}</p>
+                  <p className="text-slate-600 dark:text-slate-300">Revoked: {selfStatus.agent.agent_revoked ? 'Yes' : 'No'}</p>
+                  <p className="text-slate-600 dark:text-slate-300">Last Seen: {formatDateTime(selfStatus.agent.last_seen)}</p>
+                  <p className="text-slate-600 dark:text-slate-300">Registered: {formatDateTime(selfStatus.agent.registered_at)}</p>
+                  <p className="text-slate-600 dark:text-slate-300">Mode Override: {formatText(selfStatus.agent.device_mode_override)}</p>
+                  <p className="text-slate-600 dark:text-slate-300">Device Tags: {formatText(selfStatus.agent.device_tags)}</p>
+                  <p className="text-slate-600 dark:text-slate-300">Revoked At: {formatDateTime(selfStatus.agent.revoked_at)}</p>
+                  <p className="text-slate-600 dark:text-slate-300">Revocation Reason: {formatText(selfStatus.agent.revocation_reason)}</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-700">
+                <p className="font-semibold text-slate-900 dark:text-slate-100">Command Queue</p>
+                <div className="mt-2 space-y-1 text-slate-600 dark:text-slate-300">
+                  <p>Pending: {selfStatus.command_counts.pending}</p>
+                  <p>Applied: {selfStatus.command_counts.applied}</p>
+                  <p>Failed: {selfStatus.command_counts.failed}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-700">
+              <p className="font-semibold text-slate-900 dark:text-slate-100">Runtime and Device Status</p>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <p className="text-slate-600 dark:text-slate-300">Runtime ID: {formatText(selfStatus.device_status?.runtime_id)}</p>
+                <p className="text-slate-600 dark:text-slate-300">Agent Version: {formatText(selfStatus.device_status?.agent_version)}</p>
+                <p className="text-slate-600 dark:text-slate-300">Adapter Status: {formatText(selfStatus.device_status?.adapter_status)}</p>
+                <p className="text-slate-600 dark:text-slate-300">Enforcement Mode: {formatText(selfStatus.device_status?.enforcement_mode)}</p>
+                <p className="text-slate-600 dark:text-slate-300">Policy Hash Applied: {formatText(selfStatus.device_status?.policy_hash_applied)}</p>
+                <p className="text-slate-600 dark:text-slate-300">Last Reconcile: {formatDateTime(selfStatus.device_status?.last_reconcile_time)}</p>
+                <p className="break-all text-slate-600 dark:text-slate-300 sm:col-span-2 xl:col-span-3">
+                  State Root: {formatText(selfStatus.device_status?.state_root)}
+                </p>
+                <p className="text-slate-600 dark:text-slate-300">Updated: {formatDateTime(selfStatus.device_status?.updated_at)}</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-3 text-xs dark:border-slate-700">
+              <p className="font-semibold text-slate-900 dark:text-slate-100">Pending Commands Preview ({selfStatus.pending_commands.length})</p>
+              {selfStatus.pending_commands.length === 0 && (
+                <p className="mt-2 text-slate-500 dark:text-slate-400">No pending commands for this agent.</p>
+              )}
+              {selfStatus.pending_commands.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {selfStatus.pending_commands.map((command) => (
+                    <div key={command.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-700 dark:text-slate-200">
+                          #{command.id} | {command.type}
+                        </p>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">{formatDateTime(command.created_at)}</p>
+                      </div>
+                      <pre className="mt-2 overflow-x-auto rounded-md bg-slate-100 p-2 text-[11px] text-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                        {toPrettyJson(command.payload)}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </Card>
 

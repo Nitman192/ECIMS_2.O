@@ -71,6 +71,10 @@ def _ensure_agent_device_status_columns(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(agent_device_status)").fetchall()}
     if "agent_version" not in columns:
         conn.execute("ALTER TABLE agent_device_status ADD COLUMN agent_version TEXT")
+    if "runtime_id" not in columns:
+        conn.execute("ALTER TABLE agent_device_status ADD COLUMN runtime_id TEXT")
+    if "state_root" not in columns:
+        conn.execute("ALTER TABLE agent_device_status ADD COLUMN state_root TEXT")
 
 def _ensure_agent_device_columns(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(agents)").fetchall()}
@@ -259,6 +263,8 @@ def init_db() -> dict[str, int | bool]:
                 adapter_status TEXT,
                 last_reconcile_time TEXT,
                 agent_version TEXT,
+                runtime_id TEXT,
+                state_root TEXT,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
             );

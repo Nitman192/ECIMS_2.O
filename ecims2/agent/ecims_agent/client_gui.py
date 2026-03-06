@@ -24,12 +24,14 @@ class ClientGUI:
 
         self.process: subprocess.Popen[str] | None = None
         self._stream_thread: threading.Thread | None = None
+        self._last_server_status: dict | None = None
 
         self.config_path = tk.StringVar(value="configs/agent.local.dev.yaml")
         self.runtime_id = tk.StringVar(value=os.environ.get("ECIMS_CLIENT_GUI_RUNTIME_ID", "endpoint-local-dev"))
         self.state_dir = tk.StringVar(value=".ecims_agent_runtime")
         self.runtime_root = tk.StringVar(value="-")
         self.last_health = tk.StringVar(value="-")
+        self.last_server_sync = tk.StringVar(value="-")
         self.agent_proc = tk.StringVar(value="stopped")
 
         self._build_layout()
@@ -59,6 +61,7 @@ class ClientGUI:
         button_row.grid(row=1, column=2, columnspan=2, sticky="e", pady=(8, 0))
         ttk.Button(button_row, text="Refresh State", command=self.refresh_state).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Health Check", command=self.check_health).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(button_row, text="Sync Server Status", command=self.sync_server_status).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Start Agent", command=self.start_agent).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Stop Agent", command=self.stop_agent).pack(side=tk.LEFT)
 
@@ -72,6 +75,8 @@ class ClientGUI:
         ttk.Label(summary, textvariable=self.runtime_root).grid(row=1, column=1, sticky="w", pady=(4, 0))
         ttk.Label(summary, text="Last health").grid(row=2, column=0, sticky="w", pady=(4, 0))
         ttk.Label(summary, textvariable=self.last_health).grid(row=2, column=1, sticky="w", pady=(4, 0))
+        ttk.Label(summary, text="Last server sync").grid(row=3, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(summary, textvariable=self.last_server_sync).grid(row=3, column=1, sticky="w", pady=(4, 0))
 
         state_group = ttk.LabelFrame(frame, text="Local Runtime Files", padding=12)
         state_group.pack(fill=tk.BOTH, expand=True)
@@ -92,6 +97,21 @@ class ClientGUI:
         state_dir = self.state_dir.get().strip() or config.state_dir
         runtime = build_runtime_context(state_dir=state_dir, runtime_id=runtime_id)
         return config_path, config.server_url, runtime.runtime_id, runtime.runtime_root
+
+    def _load_agent_state(self, runtime_root: Path) -> dict:
+        state_path = runtime_root / "agent_state.json"
+        if not state_path.exists():
+            return {}
+        try:
+            return json.loads(state_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _mask_token(token: str) -> str:
+        if len(token) <= 10:
+            return "*" * len(token)
+        return f"{token[:4]}...{token[-4:]}"
 
     def _set_state_text(self, payload: str) -> None:
         self.state_view.configure(state=tk.NORMAL)
@@ -131,7 +151,15 @@ class ClientGUI:
                         data = {"error": f"Invalid JSON: {exc}"}
                 else:
                     data = path.read_text(encoding="utf-8", errors="replace")
+                if label == "agent_state" and isinstance(data, dict):
+                    token = data.get("token")
+                    if isinstance(token, str):
+                        data = dict(data)
+                        data["token_masked"] = self._mask_token(token)
+                        data["token"] = "<redacted>"
                 snapshot["files"][label] = {"path": str(path), "exists": True, "data": data}
+            if self._last_server_status is not None:
+                snapshot["server_status"] = self._last_server_status
             self._set_state_text(json.dumps(snapshot, indent=2))
             self._append_log("[INFO] Local runtime state refreshed")
         except Exception as exc:  # noqa: BLE001
@@ -148,6 +176,34 @@ class ClientGUI:
         except Exception as exc:  # noqa: BLE001
             self.last_health.set(f"failed ({exc})")
             self._append_log(f"[ERROR] Health check failed: {exc}")
+
+    def sync_server_status(self) -> None:
+        try:
+            _, server_url, _, runtime_root = self._resolve_runtime()
+            state = self._load_agent_state(runtime_root)
+            agent_id = state.get("agent_id")
+            token = state.get("token")
+            if not isinstance(agent_id, int) or not isinstance(token, str) or not token:
+                self._append_log("[WARN] Cannot sync server status: local agent_id/token not available yet")
+                return
+
+            response = requests.get(
+                f"{server_url}/api/v1/agents/{agent_id}/self/status",
+                headers={"X-ECIMS-TOKEN": token},
+                timeout=8,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            self._last_server_status = payload
+
+            counts = payload.get("command_counts") or {}
+            pending = counts.get("pending", 0)
+            self.last_server_sync.set(f"ok (pending={pending})")
+            self._append_log(f"[INFO] Server status synced for agent_id={agent_id}, pending_commands={pending}")
+            self.refresh_state()
+        except Exception as exc:  # noqa: BLE001
+            self.last_server_sync.set(f"failed ({exc})")
+            self._append_log(f"[ERROR] Server status sync failed: {exc}")
 
     def start_agent(self) -> None:
         if self.process and self.process.poll() is None:

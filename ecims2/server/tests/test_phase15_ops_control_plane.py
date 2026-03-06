@@ -399,6 +399,7 @@ class TestPhase15OpsControlPlane(unittest.TestCase):
             self._configure_env(tmp)
             with self._load_client() as client:
                 admin = self._auth_header(client, "admin", "admin123")
+                agent_id = self._insert_agent("admin-view-agent", "admin-view-host", "tok-admin-view")
                 create_user = client.post(
                     "/api/v1/admin/users",
                     headers=admin,
@@ -431,6 +432,66 @@ class TestPhase15OpsControlPlane(unittest.TestCase):
 
                 denied_matrix = client.get("/api/v1/admin/roles/matrix", headers=analyst)
                 self.assertEqual(denied_matrix.status_code, 403, denied_matrix.text)
+
+                admin_self_status = client.get(f"/api/v1/admin/agents/{agent_id}/self-status", headers=admin)
+                self.assertEqual(admin_self_status.status_code, 200, admin_self_status.text)
+                self.assertEqual(int(admin_self_status.json()["agent"]["id"]), agent_id)
+
+                denied_self_status = client.get(f"/api/v1/admin/agents/{agent_id}/self-status", headers=analyst)
+                self.assertEqual(denied_self_status.status_code, 403, denied_self_status.text)
+
+    def test_agent_self_status_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            self._configure_env(tmp)
+            with self._load_client() as client:
+                agent_id = self._insert_agent("agent-self", "host-self", "tok-self")
+                now_iso = utcnow().isoformat()
+                with get_db() as conn:
+                    conn.execute(
+                        """
+                        INSERT INTO agent_device_status(
+                            agent_id, policy_hash_applied, enforcement_mode, adapter_status,
+                            last_reconcile_time, agent_version, runtime_id, state_root, updated_at
+                        )
+                        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            agent_id,
+                            "policy-hash-1",
+                            "observe",
+                            "ok",
+                            now_iso,
+                            "2.0.0",
+                            "client-a",
+                            "X:/ECIMS_2.O-main/ecims2/.ecims_agent_runtime/client-a",
+                            now_iso,
+                        ),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO agent_commands(agent_id, type, payload_json, status, created_at, applied_at, error)
+                        VALUES(?, ?, ?, 'PENDING', ?, NULL, NULL)
+                        """,
+                        (agent_id, "DEVICE_SET_MODE", json.dumps({"mode": "observe"}), now_iso),
+                    )
+
+                ok = client.get(
+                    f"/api/v1/agents/{agent_id}/self/status",
+                    headers={"X-ECIMS-TOKEN": "tok-self"},
+                )
+                self.assertEqual(ok.status_code, 200, ok.text)
+                payload = ok.json()
+                self.assertEqual(int(payload["agent"]["id"]), agent_id)
+                self.assertEqual(payload["device_status"]["runtime_id"], "client-a")
+                self.assertEqual(int(payload["command_counts"]["pending"]), 1)
+                self.assertEqual(len(payload["pending_commands"]), 1)
+
+                invalid = client.get(
+                    f"/api/v1/agents/{agent_id}/self/status",
+                    headers={"X-ECIMS-TOKEN": "wrong-token"},
+                )
+                self.assertEqual(invalid.status_code, 401, invalid.text)
 
 
 if __name__ == "__main__":

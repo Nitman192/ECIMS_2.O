@@ -187,6 +187,8 @@ PYTHONPATH=agent python -m ecims_agent.main --config configs/agent.local.dev.yam
 - `POST /api/v1/agents/events`
 - `GET /api/v1/alerts`
 - `GET /api/v1/agents`
+- `GET /api/v1/agents/{agent_id}/self/status`
+- `GET /api/v1/admin/agents/{agent_id}/self-status`
 - `POST /api/v1/admin/run_offline_check`
 - `GET /health`
 

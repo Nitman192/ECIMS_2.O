@@ -611,14 +611,26 @@ def agent_device_status(agent_id: int, payload: dict, request: Request, x_ecims_
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO agent_device_status(agent_id, policy_hash_applied, enforcement_mode, adapter_status, last_reconcile_time, agent_version, updated_at)
-            VALUES(?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO agent_device_status(
+                agent_id,
+                policy_hash_applied,
+                enforcement_mode,
+                adapter_status,
+                last_reconcile_time,
+                agent_version,
+                runtime_id,
+                state_root,
+                updated_at
+            )
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(agent_id) DO UPDATE SET
                 policy_hash_applied=excluded.policy_hash_applied,
                 enforcement_mode=excluded.enforcement_mode,
                 adapter_status=excluded.adapter_status,
                 last_reconcile_time=excluded.last_reconcile_time,
                 agent_version=excluded.agent_version,
+                runtime_id=excluded.runtime_id,
+                state_root=excluded.state_root,
                 updated_at=excluded.updated_at
             """,
             (
@@ -628,10 +640,23 @@ def agent_device_status(agent_id: int, payload: dict, request: Request, x_ecims_
                 str(payload.get("adapter_status", "")),
                 str(payload.get("last_reconcile_time", "")),
                 str(payload.get("agent_version", "")),
+                str(payload.get("runtime_id", "")),
+                str(payload.get("state_root", "")),
                 utcnow().isoformat(),
             ),
         )
     return {"status": "ok"}
+
+
+@router.get("/agents/{agent_id}/self/status")
+def agent_self_status(agent_id: int, request: Request, x_ecims_token: str = Header(default="")):
+    require_mtls_client_identity(request, claimed_agent_id=agent_id)
+    validate_token(agent_id, x_ecims_token)
+    payload = AgentService.get_agent_self_status(agent_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return payload
+
 
 @router.get("/alerts", response_model=list[AlertOut])
 def get_alerts(limit: int = Query(default=200, ge=1, le=1000)):
@@ -697,6 +722,25 @@ def revoke_agent(agent_id: int, payload: AgentRevokeRequest, _: None = Depends(r
     if not AgentService.revoke_agent(agent_id, payload.reason, actor_id=user["id"]):
         raise HTTPException(status_code=404, detail="Agent not found")
     return {"status": "revoked", "agent_id": agent_id}
+
+
+@router.get("/admin/agents/{agent_id}/self-status")
+def admin_agent_self_status(agent_id: int, admin: dict = Depends(require_admin)):
+    payload = AgentService.get_agent_self_status(agent_id)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="AGENT_SELF_STATUS_VIEWED",
+            target_type="AGENT",
+            target_id=agent_id,
+            message="Admin viewed agent self-status snapshot",
+            metadata={"pending_commands": int(payload["command_counts"]["pending"])},
+        )
+    return payload
 
 
 @router.post("/admin/agents/{agent_id}/restore")
