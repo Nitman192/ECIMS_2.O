@@ -40,6 +40,7 @@ def _bootstrap_environment(root: Path, environment: str) -> None:
     _set_default_path("ECIMS_DEVICE_ALLOW_TOKEN_PUBLIC_KEY_PATH", configs_dir / "device_allow_token_public.pem")
     _set_default_path("ECIMS_DEVICE_ALLOW_TOKEN_PRIVATE_KEY_PATH", configs_dir / "device_allow_token_private.pem")
     _set_default_path("ECIMS_DATA_KEY_PATH", configs_dir / "data_keys.json")
+    _set_default_path("ECIMS_ADMIN_CONSOLE_DIST_PATH", root / "admin_frontend")
 
 
 def _load_asgi_app(root: Path):

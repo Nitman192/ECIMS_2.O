@@ -53,6 +53,10 @@ import type {
   MaintenanceScheduleStatePayload,
   OfflineEnrollmentKitImportPayload,
   OfflineEnrollmentKitImportResponse,
+  PatchUpdateApplyPayload,
+  PatchUpdateApplyResponse,
+  PatchUpdateItem,
+  PatchUpdateListResponse,
   Playbook,
   PlaybookCreatePayload,
   PlaybookCreateResponse,
@@ -186,4 +190,14 @@ export const CoreApi = {
     api.post<StateBackupRestorePreviewResponse>(`/admin/ops/state-backups/${backupId}/restore/preview`, payload),
   applyStateBackupRestore: (backupId: string, payload: StateBackupRestoreApplyPayload) =>
     api.post<StateBackupRestoreApplyResponse>(`/admin/ops/state-backups/${backupId}/restore/apply`, payload),
+  listPatchUpdates: (params?: { page?: number; page_size?: number; status?: string; q?: string }) =>
+    api.get<PatchUpdateListResponse>('/admin/ops/patch-updates', { params }),
+  uploadPatchUpdate: (payload: FormData) =>
+    api.post<{ item: PatchUpdateItem }>('/admin/ops/patch-updates/upload', payload, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  downloadPatchUpdate: (patchId: string) =>
+    api.get<Blob>(`/admin/ops/patch-updates/${patchId}/download`, { responseType: 'blob' }),
+  applyPatchUpdate: (patchId: string, payload: PatchUpdateApplyPayload) =>
+    api.post<PatchUpdateApplyResponse>(`/admin/ops/patch-updates/${patchId}/apply`, payload),
 };

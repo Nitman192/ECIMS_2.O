@@ -5,6 +5,8 @@
 environment: dev
 app_name: ECIMS 2.0 Server
 api_prefix: /api/v1
+request_size_limit_bytes: 1048576
+patch_update_max_file_bytes: 268435456
 
 db_path: ecims2.db
 ai_artifact_dir: ai_artifacts
@@ -41,3 +43,7 @@ discovery_http_port: 8010
 discovery_mdns_enabled: false
 discovery_mdns_service_name: ecims-server
 discovery_mdns_service_type: _ecims._tcp.local.
+
+# Admin console static bundle (served by server on "/")
+admin_console_enabled: true
+admin_console_dist_path: ../ecims_admin/dist

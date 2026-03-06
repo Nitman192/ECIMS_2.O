@@ -40,6 +40,7 @@ const SHORTCUTS: ShortcutItem[] = [
   { label: 'Remote Actions', to: '/ops/remote-actions', hotkey: 'Alt+4', key: '4', keywords: ['remote', 'actions', 'tasks'] },
   { label: 'Schedules', to: '/ops/schedules', hotkey: 'Alt+5', key: '5', keywords: ['schedule', 'maintenance'] },
   { label: 'Change Control', to: '/ops/change-control', hotkey: 'Alt+6', key: '6', keywords: ['change', 'backup', 'restore'] },
+  { label: 'Patch Updates', to: '/ops/patch-updates', hotkey: 'Alt+7', key: '7', keywords: ['patch', 'update', 'offline'] },
 ];
 
 const formatRemaining = (seconds: number) => {

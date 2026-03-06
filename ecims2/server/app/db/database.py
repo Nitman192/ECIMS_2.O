@@ -660,6 +660,28 @@ def init_db() -> dict[str, int | bool]:
 
             CREATE INDEX IF NOT EXISTS idx_state_restore_jobs_backup_created ON state_restore_jobs(backup_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_state_restore_jobs_status_created ON state_restore_jobs(status, created_at);
+            CREATE TABLE IF NOT EXISTS patch_updates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patch_id TEXT NOT NULL UNIQUE,
+                version TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                sha256 TEXT NOT NULL,
+                file_size_bytes INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('UPLOADED', 'APPLIED', 'FAILED', 'ROLLED_BACK')),
+                notes TEXT NOT NULL DEFAULT '',
+                apply_notes TEXT,
+                backup_id TEXT,
+                created_by_user_id INTEGER NOT NULL,
+                applied_by_user_id INTEGER,
+                created_at TEXT NOT NULL,
+                applied_at TEXT,
+                FOREIGN KEY (created_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (applied_by_user_id) REFERENCES users(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_patch_updates_status_created ON patch_updates(status, created_at);
+            CREATE INDEX IF NOT EXISTS idx_patch_updates_version_created ON patch_updates(version, created_at);
             CREATE TABLE IF NOT EXISTS ai_scores (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts TEXT NOT NULL,

@@ -247,3 +247,9 @@ class StateBackupRestoreApplyRequest(StateBackupRestorePreviewRequest):
     reason: str = Field(min_length=5, max_length=1024)
     idempotency_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$")
     confirm_apply: bool
+
+
+class PatchUpdateApplyRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=1024)
+    backup_scope: str = Field(default="CONFIG_ONLY", pattern=r"^(CONFIG_ONLY|FULL)$")
+    include_sensitive: bool = False

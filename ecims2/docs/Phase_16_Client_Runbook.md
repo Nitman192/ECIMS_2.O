@@ -53,6 +53,10 @@ Server PC par:
 cd /d <copied_path>\server
 start_server.cmd
 ```
+Admin UI open karo:
+```text
+http://<SERVER_LAN_IP>:8010/
+```
 
 Multi-NIC ya wrong advertised IP case me explicitly set karo:
 ```cmd
@@ -181,6 +185,7 @@ GUI features:
    - pending command preview
    verify karo.
 5) Client GUI (`scripts\run_client_gui_local_dev.cmd client-a`) se `Sync Server Status` click karke same agent ka self-status match karo.
+6) Admin panel me `/ops/patch-updates` open karke offline patch upload/download/apply workflow verify karo.
 
 CLI verification:
 ```cmd

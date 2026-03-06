@@ -14,6 +14,7 @@ import {
   FiHome,
   FiKey,
   FiLock,
+  FiPackage,
   FiPower,
   FiShield,
   FiShieldOff,
@@ -86,6 +87,7 @@ const adminOpsGroups: SidebarGroup[] = [
       { to: '/ops/evidence-vault', label: 'Evidence Vault', icon: FiHardDrive, accent: 'green' },
       { to: '/ops/playbooks', label: 'Playbooks', icon: FiBookOpen, accent: 'green' },
       { to: '/ops/change-control', label: 'Change Control', icon: FiGitMerge, accent: 'green' },
+      { to: '/ops/patch-updates', label: 'Patch Updates', icon: FiPackage, accent: 'green' },
       { to: '/ops/break-glass', label: 'Break Glass', icon: FiLock, accent: 'red' },
     ],
   },
@@ -307,7 +309,7 @@ export const Sidebar = ({
               <div className="flex justify-center">
                 <span
                   className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-400"
-                  title="Use Alt+1..Alt+6 for quick navigation"
+                  title="Use Alt+1..Alt+7 for quick navigation"
                 >
                   <FiZap />
                 </span>

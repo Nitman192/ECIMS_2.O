@@ -24,7 +24,7 @@ from ecims_agent.runtime import build_runtime_context
 class ClientGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("ECIMS Client GUI (Local Dev)")
+        self.root.title("ECIMS Client Control Panel")
         self.root.geometry("1020x720")
         self.root.minsize(860, 620)
 
@@ -36,6 +36,7 @@ class ClientGUI:
         self.runtime_id = tk.StringVar(value=os.environ.get("ECIMS_CLIENT_GUI_RUNTIME_ID", "endpoint-local-dev"))
         self.state_dir = tk.StringVar(value=".ecims_agent_runtime")
         self.runtime_root = tk.StringVar(value="-")
+        self.server_target = tk.StringVar(value="-")
         self.last_health = tk.StringVar(value="-")
         self.last_server_sync = tk.StringVar(value="-")
         self.agent_proc = tk.StringVar(value="stopped")
@@ -66,11 +67,12 @@ class ClientGUI:
 
         button_row = ttk.Frame(controls)
         button_row.grid(row=1, column=2, columnspan=2, sticky="e", pady=(8, 0))
+        ttk.Button(button_row, text="Quick Setup", command=self.run_quick_setup).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Refresh State", command=self.refresh_state).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(button_row, text="Health Check", command=self.check_health).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(button_row, text="Sync Server Status", command=self.sync_server_status).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(button_row, text="Start Agent", command=self.start_agent).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(button_row, text="Stop Agent", command=self.stop_agent).pack(side=tk.LEFT)
+        ttk.Button(button_row, text="Sync with Server", command=self.sync_server_status).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(button_row, text="Start Monitoring", command=self.start_agent).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(button_row, text="Stop Monitoring", command=self.stop_agent).pack(side=tk.LEFT)
 
         ttk.Label(controls, text="Secure key").grid(row=2, column=0, sticky="w", pady=(10, 0))
         key_row = ttk.Frame(controls)
@@ -87,10 +89,20 @@ class ClientGUI:
         ttk.Label(summary, textvariable=self.agent_proc).grid(row=0, column=1, sticky="w")
         ttk.Label(summary, text="Runtime root").grid(row=1, column=0, sticky="w", pady=(4, 0))
         ttk.Label(summary, textvariable=self.runtime_root).grid(row=1, column=1, sticky="w", pady=(4, 0))
-        ttk.Label(summary, text="Last health").grid(row=2, column=0, sticky="w", pady=(4, 0))
-        ttk.Label(summary, textvariable=self.last_health).grid(row=2, column=1, sticky="w", pady=(4, 0))
-        ttk.Label(summary, text="Last server sync").grid(row=3, column=0, sticky="w", pady=(4, 0))
-        ttk.Label(summary, textvariable=self.last_server_sync).grid(row=3, column=1, sticky="w", pady=(4, 0))
+        ttk.Label(summary, text="Server target").grid(row=2, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(summary, textvariable=self.server_target).grid(row=2, column=1, sticky="w", pady=(4, 0))
+        ttk.Label(summary, text="Last health").grid(row=3, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(summary, textvariable=self.last_health).grid(row=3, column=1, sticky="w", pady=(4, 0))
+        ttk.Label(summary, text="Last server sync").grid(row=4, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(summary, textvariable=self.last_server_sync).grid(row=4, column=1, sticky="w", pady=(4, 0))
+        ttk.Button(summary, text="Open Runtime Folder", command=self.open_runtime_folder).grid(row=0, column=2, rowspan=2, padx=(8, 0), sticky="ne")
+
+        quick_help = ttk.LabelFrame(frame, text="Quick Start (New User)", padding=12)
+        quick_help.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(quick_help, text="1) Set Runtime ID (for example: client-a).").pack(anchor="w")
+        ttk.Label(quick_help, text="2) Click Quick Setup to verify server + local state.").pack(anchor="w", pady=(2, 0))
+        ttk.Label(quick_help, text="3) Click Start Monitoring to run endpoint agent.").pack(anchor="w", pady=(2, 0))
+        ttk.Label(quick_help, text="4) For secure unblock, paste Secure key and click Apply Secure Key.").pack(anchor="w", pady=(2, 0))
 
         state_group = ttk.LabelFrame(frame, text="Local Runtime Files", padding=12)
         state_group.pack(fill=tk.BOTH, expand=True)
@@ -144,8 +156,9 @@ class ClientGUI:
 
     def refresh_state(self) -> None:
         try:
-            _, _, runtime_id, runtime_root = self._resolve_runtime()
+            _, server_url, runtime_id, runtime_root = self._resolve_runtime()
             self.runtime_root.set(str(runtime_root))
+            self.server_target.set(server_url)
             snapshot = {"runtime_id": runtime_id, "runtime_root": str(runtime_root), "files": {}}
             files = {
                 "agent_state": runtime_root / "agent_state.json",
@@ -178,6 +191,21 @@ class ClientGUI:
             self._append_log("[INFO] Local runtime state refreshed")
         except Exception as exc:  # noqa: BLE001
             self._append_log(f"[ERROR] Refresh failed: {exc}")
+
+    def run_quick_setup(self) -> None:
+        self._append_log("[INFO] Quick setup started")
+        self.refresh_state()
+        self.check_health()
+        self.sync_server_status()
+        self._append_log("[INFO] Quick setup finished")
+
+    def open_runtime_folder(self) -> None:
+        try:
+            _, _, _, runtime_root = self._resolve_runtime()
+            runtime_root.mkdir(parents=True, exist_ok=True)
+            subprocess.Popen(["explorer", str(runtime_root)])
+        except Exception as exc:  # noqa: BLE001
+            self._append_log(f"[ERROR] Unable to open runtime folder: {exc}")
 
     def check_health(self) -> None:
         try:

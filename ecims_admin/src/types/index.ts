@@ -851,6 +851,44 @@ export interface StateBackupRestoreApplyResponse {
   created: boolean;
 }
 
+export type PatchUpdateStatus = 'UPLOADED' | 'APPLIED' | 'FAILED' | 'ROLLED_BACK';
+
+export interface PatchUpdateItem {
+  patch_id: string;
+  version: string;
+  filename: string;
+  file_path: string;
+  sha256: string;
+  file_size_bytes: number;
+  status: PatchUpdateStatus | string;
+  notes: string;
+  apply_notes: string;
+  backup_id?: string | null;
+  created_by_user_id: number;
+  applied_by_user_id?: number | null;
+  created_at: string;
+  applied_at?: string | null;
+}
+
+export interface PatchUpdateListResponse {
+  page: number;
+  page_size: number;
+  total: number;
+  items: PatchUpdateItem[];
+}
+
+export interface PatchUpdateApplyPayload {
+  reason: string;
+  backup_scope: StateBackupScope;
+  include_sensitive: boolean;
+}
+
+export interface PatchUpdateApplyResponse {
+  item: PatchUpdateItem;
+  backup: StateBackup;
+  next_steps: string[];
+}
+
 export interface Agent {
   id: number;
   hostname: string;

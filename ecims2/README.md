@@ -708,6 +708,7 @@ scripts\build_windows_executables.cmd
 Server package output: `dist/ecims_server/`.
 Agent package output: `dist/ecims_agent_windows/`.
 Windows EXE output: `dist/windows_executables/server/` and `dist/windows_executables/client/`.
+Server EXE package now includes bundled admin frontend under `admin_frontend/` and serves it on `http://<server-ip>:8010/`.
 
 By default, server package excludes allow-token private keys. To include explicitly:
 ```bash

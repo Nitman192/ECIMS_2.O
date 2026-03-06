@@ -22,4 +22,5 @@ if not defined ECIMS_DISCOVERY_SERVER_URL (
 
 echo [INFO] Starting ECIMS Server EXE on %ECIMS_SERVER_HOST%:%ECIMS_SERVER_PORT%
 echo [INFO] Discovery advertises: %ECIMS_DISCOVERY_SERVER_URL%
+echo [INFO] Admin Console URL: http://%ECIMS_ADVERTISE_IP%:%ECIMS_SERVER_PORT%/
 ecims_server.exe --host %ECIMS_SERVER_HOST% --port %ECIMS_SERVER_PORT% --environment %ECIMS_ENVIRONMENT%

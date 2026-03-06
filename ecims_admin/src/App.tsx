@@ -41,6 +41,9 @@ const ChangeControlPage = lazy(() =>
   import('./pages/ops/ChangeControlPage').then((module) => ({ default: module.ChangeControlPage })),
 );
 const BreakGlassPage = lazy(() => import('./pages/ops/BreakGlassPage').then((module) => ({ default: module.BreakGlassPage })));
+const PatchUpdatesPage = lazy(() =>
+  import('./pages/ops/PatchUpdatesPage').then((module) => ({ default: module.PatchUpdatesPage })),
+);
 
 const PageLoadingState = () => (
   <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-950">
@@ -115,6 +118,7 @@ export const App = () => {
             <Route path="evidence-vault" element={<EvidenceVaultPage />} />
             <Route path="playbooks" element={<PlaybooksPage />} />
             <Route path="change-control" element={<ChangeControlPage />} />
+            <Route path="patch-updates" element={<PatchUpdatesPage />} />
             <Route path="break-glass" element={<BreakGlassPage />} />
           </Route>
         </Route>

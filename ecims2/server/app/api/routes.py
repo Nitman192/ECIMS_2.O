@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.responses import FileResponse
 
 from app.ai.service import AIService
 from app.api.deps import (
@@ -37,6 +38,7 @@ from app.schemas.admin import (
     DeviceKillSwitchRequest,
     DeviceSecureDeclareRequest,
     DeviceSetAgentModeRequest,
+    PatchUpdateApplyRequest,
     FeatureFlagCreateRequest,
     FeatureFlagSetStateRequest,
     MaintenanceScheduleCreateRequest,
@@ -93,6 +95,7 @@ from app.services.event_service import EventService
 from app.services.feature_flag_service import FeatureFlagService
 from app.services.maintenance_schedule_service import MaintenanceScheduleService
 from app.services.playbook_service import PlaybookService
+from app.services.patch_update_service import PatchUpdateService
 from app.services.rbac_service import RBACService
 from app.services.remote_action_task_service import RemoteActionTaskService
 from app.services.retention_service import RetentionService
@@ -1931,6 +1934,168 @@ def admin_apply_state_backup_restore(
         response.status_code = status.HTTP_200_OK
     return {"item": item, "created": created}
 
+
+@router.get("/admin/ops/patch-updates")
+def admin_list_patch_updates(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    status_filter: str | None = Query(default=None, alias="status"),
+    q: str | None = Query(default=None, max_length=128),
+    admin: dict = Depends(require_admin),
+):
+    try:
+        payload = PatchUpdateService.list_patches(
+            page=page,
+            page_size=page_size,
+            status_filter=status_filter,
+            query=q,
+        )
+    except ValueError as exc:
+        if str(exc) == "INVALID_STATUS":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid patch status filter") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="PATCH_UPDATE_LIST_VIEWED",
+            target_type="PATCH_UPDATE",
+            target_id="all",
+            message="Patch update list viewed",
+            metadata={"page": page, "page_size": page_size, "status": status_filter, "query": q},
+        )
+    return payload
+
+
+@router.post("/admin/ops/patch-updates/upload", status_code=status.HTTP_201_CREATED)
+async def admin_upload_patch_update(
+    version: str = Form(...),
+    notes: str = Form(default=""),
+    bundle: UploadFile = File(...),
+    admin: dict = Depends(require_admin),
+):
+    settings = get_settings()
+    filename = (bundle.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Patch file name is required")
+    payload = await bundle.read()
+    if len(payload) > settings.patch_update_max_file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Patch file exceeds max size ({settings.patch_update_max_file_bytes} bytes)",
+        )
+    try:
+        item = PatchUpdateService.upload_patch(
+            version=version,
+            original_filename=filename,
+            payload=payload,
+            notes=notes,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        code = str(exc)
+        if code == "EMPTY_FILE":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Patch file is empty") from exc
+        if code == "INVALID_VERSION":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Patch version is required") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+    finally:
+        await bundle.close()
+
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="PATCH_UPDATE_UPLOADED",
+            target_type="PATCH_UPDATE",
+            target_id=item["patch_id"],
+            message="Offline patch package uploaded",
+            metadata={"version": item["version"], "filename": item["filename"], "sha256": item["sha256"]},
+        )
+    return {"item": item}
+
+
+@router.get("/admin/ops/patch-updates/{patch_id}/download")
+def admin_download_patch_update(patch_id: str, admin: dict = Depends(require_admin)):
+    try:
+        resolved = PatchUpdateService.resolve_file_path(patch_id)
+    except ValueError as exc:
+        code = str(exc)
+        if code == "PATCH_FILE_MISSING":
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail="Patch file missing on disk") from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=code) from exc
+    if not resolved:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patch update not found")
+    file_path, filename = resolved
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="PATCH_UPDATE_DOWNLOADED",
+            target_type="PATCH_UPDATE",
+            target_id=patch_id,
+            message="Offline patch package downloaded",
+            metadata={"filename": filename},
+        )
+    return FileResponse(path=file_path, media_type="application/octet-stream", filename=filename)
+
+
+@router.post("/admin/ops/patch-updates/{patch_id}/apply")
+def admin_apply_patch_update(
+    patch_id: str,
+    payload: PatchUpdateApplyRequest,
+    admin: dict = Depends(require_admin),
+):
+    patch_item = PatchUpdateService.get_patch(patch_id)
+    if not patch_item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patch update not found")
+
+    try:
+        backup = StateBackupService.create_backup(
+            scope=payload.backup_scope,
+            include_sensitive=payload.include_sensitive,
+            actor_id=admin["id"],
+        )
+    except ValueError as exc:
+        _raise_backup_error(exc)
+
+    updated = PatchUpdateService.mark_applied(
+        patch_id=patch_id,
+        actor_id=admin["id"],
+        apply_notes=payload.reason,
+        backup_id=backup["backup_id"],
+    )
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patch update not found")
+
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="PATCH_UPDATE_APPLIED",
+            target_type="PATCH_UPDATE",
+            target_id=patch_id,
+            message="Patch update marked as applied with pre-change backup",
+            metadata={
+                "backup_id": backup["backup_id"],
+                "backup_scope": backup["scope"],
+                "reason": payload.reason,
+            },
+        )
+
+    return {
+        "item": updated,
+        "backup": backup,
+        "next_steps": [
+            "Download the patch package from this panel on target LAN machine.",
+            "Run vendor installer or scripted patch package locally.",
+            "After validation, keep backup_id for rollback reference.",
+        ],
+    }
 
 
 

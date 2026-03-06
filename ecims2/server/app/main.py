@@ -10,7 +10,8 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router as api_router
 from app.core.config import get_settings
@@ -34,6 +35,38 @@ settings = get_settings()
 
 app = FastAPI(title=settings.app_name)
 
+_server_root = Path(__file__).resolve().parents[2]
+
+
+def _resolve_admin_console_dir() -> Path | None:
+    if not settings.admin_console_enabled:
+        return None
+
+    candidates: list[Path] = []
+    configured = settings.admin_console_dist_path.strip()
+    if configured:
+        configured_path = Path(configured)
+        if not configured_path.is_absolute():
+            configured_path = (_server_root / configured_path).resolve()
+        candidates.append(configured_path)
+
+    candidates.append((_server_root / "admin_frontend").resolve())
+    candidates.append((_server_root.parent / "ecims_admin" / "dist").resolve())
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        candidate_str = str(candidate)
+        if candidate_str in seen:
+            continue
+        seen.add(candidate_str)
+        if (candidate / "index.html").exists():
+            return candidate
+    return None
+
+
+_admin_console_dir = _resolve_admin_console_dir()
+_admin_console_index = (_admin_console_dir / "index.html") if _admin_console_dir else None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -44,6 +77,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if _admin_console_dir:
+    assets_dir = _admin_console_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="admin-assets")
 
 
 class StartupValidationError(RuntimeError):
@@ -231,6 +269,10 @@ async def request_id_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def request_size_limit(request: Request, call_next):
+    upload_patch_path = f"{settings.api_prefix}/admin/ops/patch-updates/upload"
+    is_patch_upload = request.method.upper() == "POST" and request.url.path == upload_patch_path
+    effective_limit = settings.patch_update_max_file_bytes if is_patch_upload else settings.request_size_limit_bytes
+
     content_length = request.headers.get("content-length")
 
     if content_length:
@@ -242,15 +284,16 @@ async def request_size_limit(request: Request, call_next):
                 detail="Invalid Content-Length header"
             )
 
-        if parsed_length > settings.request_size_limit_bytes:
+        if parsed_length > effective_limit:
             raise HTTPException(
                 status_code=413,
                 detail="Payload too large"
             )
+        return await call_next(request)
 
     body = await request.body()
 
-    if len(body) > settings.request_size_limit_bytes:
+    if len(body) > effective_limit:
         raise HTTPException(
             status_code=413,
             detail="Payload too large"
@@ -366,6 +409,10 @@ def on_startup() -> None:
     logger.info("Policy mode=%s reason=%s", policy_state.policy.mode, policy_state.reason)
     logger.info("License status valid=%s reason=%s", license_state.valid, license_state.reason)
     logger.info("Storage encryption enabled=%s key_id=%s reason=%s", crypto_status.encryption_enabled, crypto_status.active_key_id, crypto_status.reason)
+    if _admin_console_index and _admin_console_index.exists():
+        logger.info("Admin console static frontend enabled at %s", _admin_console_dir)
+    else:
+        logger.info("Admin console static frontend not found; API-only mode active")
     _start_maintenance_scheduler()
     DiscoveryService.start()
 
@@ -393,3 +440,32 @@ def health() -> dict[str, object]:
 
 
 app.include_router(api_router, prefix=settings.api_prefix)
+
+
+@app.get("/", include_in_schema=False)
+def root_index():
+    if _admin_console_index and _admin_console_index.exists():
+        return FileResponse(_admin_console_index)
+    return {"status": "ok", "message": "ECIMS server is running", "health": "/health"}
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def admin_console_fallback(full_path: str):
+    if not (_admin_console_dir and _admin_console_index and _admin_console_index.exists()):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    normalized = full_path.strip("/")
+    if not normalized:
+        return FileResponse(_admin_console_index)
+    if normalized.startswith("api/") or normalized == "health":
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    base_dir = _admin_console_dir.resolve()
+    candidate = (base_dir / normalized).resolve()
+    try:
+        candidate.relative_to(base_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Not Found") from exc
+    if candidate.is_file():
+        return FileResponse(candidate)
+    return FileResponse(_admin_console_index)

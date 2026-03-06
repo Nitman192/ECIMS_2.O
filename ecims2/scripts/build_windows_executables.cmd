@@ -16,11 +16,56 @@ set "PYI_DIST=%BUILD_ROOT%\dist"
 set "OUT_ROOT=%CD%\dist\windows_executables"
 set "OUT_SERVER=%OUT_ROOT%\server"
 set "OUT_CLIENT=%OUT_ROOT%\client"
+set "ADMIN_ROOT=%CD%\..\ecims_admin"
+set "ADMIN_DIST=%ADMIN_ROOT%\dist"
+
+if not exist "%ADMIN_ROOT%\package.json" (
+  echo [ERROR] Admin frontend project not found at %ADMIN_ROOT%
+  exit /b 1
+)
+
+where npm >nul 2>nul
+if errorlevel 1 (
+  echo [ERROR] npm is required to build admin frontend but was not found in PATH
+  exit /b 1
+)
+
+echo [INFO] Building admin frontend...
+pushd "%ADMIN_ROOT%"
+if not exist "node_modules" (
+  echo [INFO] Installing admin frontend dependencies...
+  call npm install
+  if errorlevel 1 (
+    popd
+    echo [ERROR] npm install failed for admin frontend
+    exit /b 1
+  )
+)
+set "VITE_API_BASE_URL=/api/v1"
+call npm run build
+if errorlevel 1 (
+  popd
+  echo [ERROR] Admin frontend build failed
+  exit /b 1
+)
+popd
+
+if not exist "%ADMIN_DIST%\index.html" (
+  echo [ERROR] Admin frontend dist was not generated at %ADMIN_DIST%
+  exit /b 1
+)
 
 echo [INFO] Installing/updating PyInstaller in project venv...
 "%PYTHON%" -m pip install --upgrade pyinstaller
 if errorlevel 1 (
   echo [ERROR] Failed to install PyInstaller
+  exit /b 1
+)
+
+echo [INFO] Syncing server and agent dependencies...
+"%PYTHON%" -m pip install -r server\requirements.txt -r agent\requirements.txt
+if errorlevel 1 (
+  echo [ERROR] Failed to install project dependencies in venv
   exit /b 1
 )
 
@@ -82,6 +127,13 @@ copy /Y "scripts\templates\start_server_exe.cmd" "%OUT_SERVER%\start_server.cmd"
 copy /Y "scripts\templates\start_agent_exe.cmd" "%OUT_CLIENT%\start_agent.cmd" >nul
 copy /Y "scripts\templates\start_client_gui_exe.cmd" "%OUT_CLIENT%\start_client_gui.cmd" >nul
 
+if exist "%OUT_SERVER%\admin_frontend" rmdir /s /q "%OUT_SERVER%\admin_frontend"
+xcopy /E /I /Y "%ADMIN_DIST%\*" "%OUT_SERVER%\admin_frontend\" >nul
+if errorlevel 1 (
+  echo [ERROR] Failed to copy admin frontend build into server package
+  exit /b 1
+)
+
 mkdir "%OUT_SERVER%\configs" >nul
 mkdir "%OUT_CLIENT%\configs" >nul
 mkdir "%OUT_CLIENT%\.ecims_agent_runtime" >nul
@@ -106,6 +158,7 @@ if exist "configs\device_allow_token_public.pem" copy /Y "configs\device_allow_t
   echo 1^) Optional: edit configs\server.yaml
   echo 2^) Start: start_server.cmd
   echo 3^) Health: curl.exe http://127.0.0.1:8010/health
+  echo 4^) Admin Console: http://127.0.0.1:8010/
 )
 
 > "%OUT_CLIENT%\README-RUN.txt" (

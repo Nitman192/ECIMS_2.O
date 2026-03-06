@@ -16,6 +16,7 @@ class Settings(BaseModel):
     db_path: str = "ecims2.db"
     offline_threshold_sec: int = 120
     request_size_limit_bytes: int = 1024 * 1024
+    patch_update_max_file_bytes: int = 256 * 1024 * 1024
     event_batch_limit: int = 1000
 
     baseline_update_mode: Literal["AUTO", "MANUAL"] = "AUTO"
@@ -72,6 +73,8 @@ class Settings(BaseModel):
     discovery_mdns_enabled: bool = False
     discovery_mdns_service_name: str = "ecims-server"
     discovery_mdns_service_type: str = "_ecims._tcp.local."
+    admin_console_enabled: bool = True
+    admin_console_dist_path: str = "../ecims_admin/dist"
 
 
 def _apply_env_override(raw: dict[str, Any], field: str, env_var: str) -> None:
@@ -110,6 +113,7 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "login_rate_limit_window_sec", "ECIMS_LOGIN_RATE_LIMIT_WINDOW_SEC")
     _apply_env_override(raw, "agent_rate_limit_count", "ECIMS_AGENT_RATE_LIMIT_COUNT")
     _apply_env_override(raw, "agent_rate_limit_window_sec", "ECIMS_AGENT_RATE_LIMIT_WINDOW_SEC")
+    _apply_env_override(raw, "patch_update_max_file_bytes", "ECIMS_PATCH_UPDATE_MAX_FILE_BYTES")
     _apply_env_override(raw, "allow_token_max_duration_minutes", "ECIMS_ALLOW_TOKEN_MAX_DURATION_MINUTES")
     _apply_env_override(raw, "device_allow_token_public_key_path", "ECIMS_DEVICE_ALLOW_TOKEN_PUBLIC_KEY_PATH")
     _apply_env_override(raw, "device_allow_token_private_key_path", "ECIMS_DEVICE_ALLOW_TOKEN_PRIVATE_KEY_PATH")
@@ -122,6 +126,7 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "discovery_http_port", "ECIMS_DISCOVERY_HTTP_PORT")
     _apply_env_override(raw, "discovery_mdns_service_name", "ECIMS_DISCOVERY_MDNS_SERVICE_NAME")
     _apply_env_override(raw, "discovery_mdns_service_type", "ECIMS_DISCOVERY_MDNS_SERVICE_TYPE")
+    _apply_env_override(raw, "admin_console_dist_path", "ECIMS_ADMIN_CONSOLE_DIST_PATH")
 
     env_data_encryption_enabled = os.getenv("ECIMS_DATA_ENCRYPTION_ENABLED")
     if env_data_encryption_enabled:
@@ -146,5 +151,9 @@ def get_settings() -> Settings:
     env_discovery_mdns_enabled = os.getenv("ECIMS_DISCOVERY_MDNS_ENABLED")
     if env_discovery_mdns_enabled:
         raw["discovery_mdns_enabled"] = env_discovery_mdns_enabled.strip().lower() in {"1", "true", "yes"}
+
+    env_admin_console_enabled = os.getenv("ECIMS_ADMIN_CONSOLE_ENABLED")
+    if env_admin_console_enabled:
+        raw["admin_console_enabled"] = env_admin_console_enabled.strip().lower() in {"1", "true", "yes"}
 
     return Settings(**raw)
