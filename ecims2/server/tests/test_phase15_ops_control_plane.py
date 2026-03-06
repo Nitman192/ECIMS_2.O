@@ -425,6 +425,13 @@ class TestPhase15OpsControlPlane(unittest.TestCase):
                 denied_backup = client.get("/api/v1/admin/ops/state-backups", headers=analyst)
                 self.assertEqual(denied_backup.status_code, 403, denied_backup.text)
 
+                admin_matrix = client.get("/api/v1/admin/roles/matrix", headers=admin)
+                self.assertEqual(admin_matrix.status_code, 200, admin_matrix.text)
+                self.assertEqual({item["role"] for item in admin_matrix.json()}, {"ADMIN", "ANALYST", "VIEWER"})
+
+                denied_matrix = client.get("/api/v1/admin/roles/matrix", headers=analyst)
+                self.assertEqual(denied_matrix.status_code, 403, denied_matrix.text)
+
 
 if __name__ == "__main__":
     unittest.main()

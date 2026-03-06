@@ -19,7 +19,16 @@ def _read(path: Path, default):
 
 
 def _write(path: Path, value) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+
+
+def configure_store_paths(*, tokens_path: str | Path, eventq_path: str | Path) -> None:
+    global TOKENS, EVENTQ
+    TOKENS = Path(tokens_path)
+    EVENTQ = Path(eventq_path)
+    TOKENS.parent.mkdir(parents=True, exist_ok=True)
+    EVENTQ.parent.mkdir(parents=True, exist_ok=True)
 
 
 def load_tokens() -> list[str]:

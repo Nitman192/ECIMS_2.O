@@ -32,6 +32,12 @@ class DeviceEnforcementAdapter(Protocol):
 _STATE = Path(__file__).resolve().parents[2] / ".device_adapter_state.json"
 
 
+def set_device_state_file(path: str | Path) -> None:
+    global _STATE
+    _STATE = Path(path)
+    _STATE.parent.mkdir(parents=True, exist_ok=True)
+
+
 def _load_state() -> dict:
     if not _STATE.exists():
         return {}

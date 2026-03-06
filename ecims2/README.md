@@ -170,6 +170,15 @@ source .venv/bin/activate
 PYTHONPATH=agent python -m ecims_agent.main --config configs/agent.yaml
 ```
 
+Parallel/local multi-agent run with isolated runtime state:
+
+```bash
+cd ecims2
+source .venv/bin/activate
+PYTHONPATH=agent python -m ecims_agent.main --config configs/agent.local.dev.yaml --runtime-id client-a --state-dir .ecims_agent_runtime
+PYTHONPATH=agent python -m ecims_agent.main --config configs/agent.local.dev.yaml --runtime-id client-b --state-dir .ecims_agent_runtime
+```
+
 ## API Endpoints
 
 ### Existing Phase 1
@@ -691,3 +700,4 @@ In `prod`, startup refuses to run when:
 
 ### Release operations
 See `RELEASE.md` for final checklist, backup strategy, kill-switch SOP, offline recovery, and key rotation process.
+For end-to-end local run commands and client GUI workflow, see `docs/Phase_16_Client_Runbook.md`.

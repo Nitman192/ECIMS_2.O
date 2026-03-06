@@ -6,6 +6,12 @@ from pathlib import Path
 STATE_FILE = Path(".ecims_agent_state.json")
 
 
+def set_state_file(path: str | Path) -> None:
+    global STATE_FILE
+    STATE_FILE = Path(path)
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
 def load_state() -> dict:
     if not STATE_FILE.exists():
         return {}

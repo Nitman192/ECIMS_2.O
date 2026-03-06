@@ -13,6 +13,8 @@ class AgentConfig:
     hostname: str
     monitored_paths: list[str]
     scan_interval_sec: int
+    runtime_id: str | None = None
+    state_dir: str = ".ecims_agent_runtime"
     enrollment_token: str | None = None
     agent_client_cert_path: str | None = None
     agent_client_key_path: str | None = None
@@ -38,6 +40,8 @@ def load_config(path: str) -> AgentConfig:
         hostname=raw.get("hostname", "unknown-host"),
         monitored_paths=raw.get("monitored_paths", []),
         scan_interval_sec=int(raw.get("scan_interval_sec", 30)),
+        runtime_id=raw.get("runtime_id"),
+        state_dir=str(raw.get("state_dir", ".ecims_agent_runtime")),
         enrollment_token=raw.get("enrollment_token"),
         agent_client_cert_path=raw.get("agent_client_cert_path"),
         agent_client_key_path=raw.get("agent_client_key_path"),

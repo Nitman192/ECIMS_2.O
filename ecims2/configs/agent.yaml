@@ -5,6 +5,8 @@ monitored_paths:
   - "/tmp"
 scan_interval_sec: 30
 enrollment_token: null
+runtime_id: "endpoint-01"
+state_dir: ".ecims_agent_runtime"
 
 # mTLS client auth (use either PEM pair or PFX)
 agent_client_cert_path: "configs/tls/agent.crt"

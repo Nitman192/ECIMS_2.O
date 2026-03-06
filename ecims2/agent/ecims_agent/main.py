@@ -8,6 +8,7 @@ from ecims_agent.api_client import ApiClient, TLSClientConfig
 from ecims_agent.config import load_config
 from ecims_agent.device_adapter import select_adapter
 from ecims_agent.device_control import DeviceControlManager
+from ecims_agent.runtime import RuntimeLock, build_runtime_context, configure_runtime_storage
 from ecims_agent.scanner import scan_paths
 from ecims_agent.storage import load_state, save_state
 from ecims_agent.version import AGENT_VERSION
@@ -16,8 +17,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger("ecims-agent")
 
 
-def run(config_path: str) -> None:
+def _with_runtime_suffix(value: str, runtime_id: str, max_length: int) -> str:
+    suffix = f"-{runtime_id}"
+    if value.endswith(suffix):
+        return value
+    base = value
+    if len(base) + len(suffix) > max_length:
+        base = base[: max(1, max_length - len(suffix))]
+    return f"{base}{suffix}"
+
+
+def run(config_path: str, runtime_id_override: str | None = None, state_dir_override: str | None = None) -> None:
     config = load_config(config_path)
+    runtime_id = runtime_id_override or config.runtime_id or config.agent_name
+    state_dir = state_dir_override or config.state_dir
+    runtime = build_runtime_context(state_dir=state_dir, runtime_id=runtime_id)
+    configure_runtime_storage(runtime)
+
+    runtime_lock = RuntimeLock(runtime.lock_file)
+    runtime_lock.acquire()
+    logger.info("Runtime initialized: id=%s state_root=%s", runtime.runtime_id, runtime.runtime_root)
+
     state = load_state()
     client = ApiClient(
         config.server_url,
@@ -42,13 +62,19 @@ def run(config_path: str) -> None:
     )
     adapter.reconcile_state(config.device_enforcement_mode)
 
+    register_name = config.agent_name
+    register_hostname = config.hostname
+    if runtime_id_override and runtime_id_override != (config.runtime_id or ""):
+        register_name = _with_runtime_suffix(config.agent_name, runtime.runtime_id, 128)
+        register_hostname = _with_runtime_suffix(config.hostname, runtime.runtime_id, 255)
+
     if "agent_id" not in state or "token" not in state:
         if config.enrollment_token:
             logger.info("Enrolling agent with server enrollment token")
-            registered = client.enroll(config.agent_name, config.hostname, config.enrollment_token)
+            registered = client.enroll(register_name, register_hostname, config.enrollment_token)
         else:
             logger.info("Registering agent with server")
-            registered = client.register(config.agent_name, config.hostname)
+            registered = client.register(register_name, register_hostname)
         state["agent_id"] = registered["agent_id"]
         state["token"] = registered["token"]
         state["snapshot"] = {}
@@ -83,6 +109,8 @@ def run(config_path: str) -> None:
                         "adapter_status": "ok",
                         "last_reconcile_time": device_mgr.last_server_contact_utc.isoformat(),
                         "agent_version": AGENT_VERSION,
+                        "runtime_id": runtime.runtime_id,
+                        "state_root": str(runtime.runtime_root),
                     },
                 )
                 last_cmd_poll = now
@@ -101,5 +129,15 @@ def run(config_path: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ECIMS Phase 1 Agent")
     parser.add_argument("--config", default="configs/agent.yaml", help="Path to agent yaml config")
+    parser.add_argument(
+        "--runtime-id",
+        default=None,
+        help="Unique runtime id (required for parallel local runs using same config)",
+    )
+    parser.add_argument(
+        "--state-dir",
+        default=None,
+        help="Base directory for runtime state files (default from config.state_dir)",
+    )
     args = parser.parse_args()
-    run(args.config)
+    run(args.config, runtime_id_override=args.runtime_id, state_dir_override=args.state_dir)

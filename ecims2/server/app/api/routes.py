@@ -45,6 +45,7 @@ from app.schemas.admin import (
     PlaybookCreateRequest,
     PlaybookExecuteRequest,
     PlaybookRunDecisionRequest,
+    RoleMatrixEntry,
     RemoteActionTaskCreateRequest,
     StateBackupCreateRequest,
     StateBackupRestoreApplyRequest,
@@ -90,6 +91,7 @@ from app.services.event_service import EventService
 from app.services.feature_flag_service import FeatureFlagService
 from app.services.maintenance_schedule_service import MaintenanceScheduleService
 from app.services.playbook_service import PlaybookService
+from app.services.rbac_service import RBACService
 from app.services.remote_action_task_service import RemoteActionTaskService
 from app.services.retention_service import RetentionService
 from app.services.state_backup_service import StateBackupService
@@ -488,7 +490,6 @@ def register_agent(
     payload: AgentRegisterRequest,
     request: Request,
     _: None = Depends(require_registration_allowed),
-    __: dict = Depends(require_admin),
 ) -> AgentRegisterResponse:
     require_mtls_client_identity(request, claimed_agent_id=None)
     agent_id, token = AgentService.register_agent(payload.name, payload.hostname)
@@ -737,6 +738,23 @@ def run_retention(_: None = Depends(require_valid_license), __: dict = Depends(r
         settings.retention_days_alerts,
         settings.retention_days_audit,
     )
+
+
+@router.get("/admin/roles/matrix", response_model=list[RoleMatrixEntry])
+def admin_role_matrix(admin: dict = Depends(require_admin)):
+    matrix = RBACService.get_role_matrix()
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="ROLE_MATRIX_VIEWED",
+            target_type="RBAC",
+            target_id="role_matrix",
+            message="Admin viewed role matrix",
+            metadata={"rows": len(matrix)},
+        )
+    return matrix
 
 
 @router.get("/admin/users", response_model=list[UserOut])

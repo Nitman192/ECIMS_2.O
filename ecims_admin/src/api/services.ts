@@ -67,6 +67,7 @@ import type {
   StateBackupListResponse,
   StateBackupRestorePreviewPayload,
   StateBackupRestorePreviewResponse,
+  RoleMatrixEntry,
   User,
 } from '../types';
 
@@ -89,6 +90,7 @@ export const CoreApi = {
   exportAudit: (payload: Record<string, unknown>) => api.post('/admin/audit/export', payload),
   revokeAgent: (agentId: number, reason: string) => api.post(`/admin/agents/${agentId}/revoke`, { reason }),
   restoreAgent: (agentId: number, reason: string) => api.post(`/admin/agents/${agentId}/restore`, { reason }),
+  rolesMatrix: () => api.get<RoleMatrixEntry[]>('/admin/roles/matrix'),
   listUsers: (includeInactive = true) => api.get<User[]>('/admin/users', { params: { include_inactive: includeInactive } }),
   createUser: (payload: AdminUserCreatePayload) => api.post<User>('/admin/users', payload),
   updateUserRole: (userId: number, payload: AdminUserRolePayload) => api.patch<User>(`/admin/users/${userId}/role`, payload),

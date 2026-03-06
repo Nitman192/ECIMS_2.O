@@ -1,10 +1,12 @@
-server_url: "http://127.0.0.1:8000"
+server_url: "http://127.0.0.1:8010"
 agent_name: "endpoint-local-dev"
 hostname: "host-local-dev"
 monitored_paths:
   - "C:/Windows/Temp"
 scan_interval_sec: 30
 enrollment_token: null
+runtime_id: "endpoint-local-dev"
+state_dir: ".ecims_agent_runtime"
 
 # Local-dev mode (no TLS pinning). Use only for local testing.
 agent_client_cert_path: null

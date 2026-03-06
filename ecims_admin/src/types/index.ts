@@ -38,6 +38,16 @@ export interface AdminUserResetPasswordPayload {
   reason: string;
 }
 
+export interface RoleMatrixEntry {
+  role: 'ADMIN' | 'ANALYST' | 'VIEWER' | string;
+  scope: string;
+  permissions: string[];
+  permission_count: number;
+  active_users: number;
+  total_users: number;
+  updated_at?: string | null;
+}
+
 export type FeatureFlagScope = 'GLOBAL' | 'USER' | 'AGENT';
 export type FeatureFlagRiskLevel = 'LOW' | 'HIGH';
 

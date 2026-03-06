@@ -34,8 +34,8 @@ security_policy_sig_path: "configs/security.policy.sig"
 security_policy_public_key_path: "configs/security.policy.public.pem"
 
 # mTLS/TLS settings
-mtls_enabled: true
-mtls_required: true
+mtls_enabled: false
+mtls_required: false
 server_cert_path: "configs/tls/server.crt"
 server_key_path: "configs/tls/server.key"
 client_ca_cert_path: "configs/tls/client_ca.crt"

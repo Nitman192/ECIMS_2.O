@@ -27,6 +27,16 @@ class AuditExportRequest(BaseModel):
     max_rows: int = Field(default=5000, ge=1, le=100000)
 
 
+class RoleMatrixEntry(BaseModel):
+    role: str
+    scope: str
+    permissions: list[str]
+    permission_count: int = Field(ge=0)
+    active_users: int = Field(ge=0)
+    total_users: int = Field(ge=0)
+    updated_at: str | None = None
+
+
 class DeviceUnblockRequestCreate(BaseModel):
     agent_id: int = Field(gt=0)
     device_id: str = Field(min_length=1, max_length=255)
