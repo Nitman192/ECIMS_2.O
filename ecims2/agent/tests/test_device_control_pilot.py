@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from ecims_agent.device_adapter import USBDevice
 from ecims_agent.device_control import DeviceControlManager
-from ecims_agent.offline_store import EVENTQ, TOKENS, save_tokens
+from ecims_agent.offline_store import EVENTQ, TOKENS, USED_ALLOW_TOKENS, save_tokens
 
 
 class _Client:
@@ -48,6 +48,9 @@ class _Adapter:
     def unblock_device(self, device, duration_minutes=None):
         return True
 
+    def reconcile_state(self, mode):
+        return
+
 
 class TestDeviceControlPilot(unittest.TestCase):
     def setUp(self) -> None:
@@ -58,6 +61,8 @@ class TestDeviceControlPilot(unittest.TestCase):
             TOKENS.unlink()
         if EVENTQ.exists():
             EVENTQ.unlink()
+        if USED_ALLOW_TOKENS.exists():
+            USED_ALLOW_TOKENS.unlink()
 
         priv = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         self.pub = Path(self.td.name) / "pub.pem"
@@ -82,6 +87,8 @@ class TestDeviceControlPilot(unittest.TestCase):
             TOKENS.unlink()
         if EVENTQ.exists():
             EVENTQ.unlink()
+        if USED_ALLOW_TOKENS.exists():
+            USED_ALLOW_TOKENS.unlink()
 
     def _mgr(self, mode="observe"):
         return DeviceControlManager(
@@ -148,6 +155,16 @@ class TestDeviceControlPilot(unittest.TestCase):
         c.commands = [{"id": 1, "type": "DEVICE_FORCE_OBSERVE", "payload": {}}]
         mgr.process_commands(c, 1, "t", _Adapter(), {})
         self.assertEqual(mgr.enforcement_mode, "observe")
+
+    def test_manual_allow_token_is_single_use(self):
+        mgr = self._mgr("enforce")
+        ok, reason = mgr.consume_manual_allow_token(agent_id=1, allow_token=self.token)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "OK")
+
+        ok_again, replay_reason = mgr.consume_manual_allow_token(agent_id=1, allow_token=self.token)
+        self.assertFalse(ok_again)
+        self.assertEqual(replay_reason, "ALLOW_TOKEN_ALREADY_USED")
 
 
 if __name__ == "__main__":

@@ -76,6 +76,12 @@ class DeviceSetAgentModeRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=1024)
 
 
+class DeviceSecureDeclareRequest(BaseModel):
+    agent_id: int = Field(gt=0)
+    reason: str = Field(min_length=5, max_length=1024)
+    duration_minutes: int = Field(default=30, ge=1, le=240)
+
+
 class FeatureFlagCreateRequest(BaseModel):
     key: str = Field(min_length=3, max_length=64, pattern=r"^[a-z][a-z0-9_.-]{2,63}$")
     description: str = Field(default="", max_length=512)

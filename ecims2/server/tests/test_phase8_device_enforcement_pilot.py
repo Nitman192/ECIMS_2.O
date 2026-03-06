@@ -73,6 +73,33 @@ class TestPhase8DeviceEnforcementPilot(unittest.TestCase):
                 reg = client.post("/api/v1/agents/register", json={"name": "a", "hostname": "h"}, headers=admin)
                 self.assertEqual(reg.status_code, 200, reg.text)
                 agent = reg.json()
+                h = {"X-ECIMS-TOKEN": agent["token"]}
+                device_event = client.post(
+                    "/api/v1/agents/events",
+                    headers=h,
+                    json={
+                        "agent_id": agent["agent_id"],
+                        "events": [
+                            {
+                                "schema_version": "1.0",
+                                "ts": "2026-01-01T00:00:00+00:00",
+                                "event_type": "device.usb.mass_storage_detected",
+                                "file_path": "device://usb://1",
+                                "sha256": None,
+                                "file_size_bytes": None,
+                                "mtime_epoch": None,
+                                "user": None,
+                                "process_name": None,
+                                "host_ip": None,
+                                "details_json": {"device_id": "usb://1", "vid": "abcd", "pid": "1234"},
+                            }
+                        ],
+                    },
+                )
+                self.assertEqual(device_event.status_code, 200, device_event.text)
+                alerts = client.get("/api/v1/alerts", headers=admin)
+                self.assertEqual(alerts.status_code, 200, alerts.text)
+                self.assertTrue(any(a.get("alert_type") == "USB_MASS_STORAGE_DETECTED" for a in alerts.json()))
 
                 tok = client.post(
                     "/api/v1/admin/device/allow-token",
@@ -88,8 +115,33 @@ class TestPhase8DeviceEnforcementPilot(unittest.TestCase):
                 )
                 self.assertEqual(tok.status_code, 200, tok.text)
                 token_id = tok.json()["claims"]["token_id"]
+                consume = client.post(
+                    f"/api/v1/agents/{agent['agent_id']}/device/allow-token/consume",
+                    headers=h,
+                    json={"allow_token": tok.json()["token"]},
+                )
+                self.assertEqual(consume.status_code, 200, consume.text)
+                consume_replay = client.post(
+                    f"/api/v1/agents/{agent['agent_id']}/device/allow-token/consume",
+                    headers=h,
+                    json={"allow_token": tok.json()["token"]},
+                )
+                self.assertEqual(consume_replay.status_code, 409, consume_replay.text)
+
                 rev = client.post("/api/v1/admin/device/allow-token/revoke", headers=admin, json={"token_id": token_id})
                 self.assertEqual(rev.status_code, 200, rev.text)
+
+                secure = client.post(
+                    "/api/v1/admin/device/secure-declare",
+                    headers=admin,
+                    json={
+                        "agent_id": agent["agent_id"],
+                        "reason": "secure declaration after investigation",
+                        "duration_minutes": 20,
+                    },
+                )
+                self.assertEqual(secure.status_code, 200, secure.text)
+                self.assertIn("command_id", secure.json())
 
                 ks = client.post("/api/v1/admin/device/kill-switch", headers=admin, json={"enabled": True, "reason": "emergency"})
                 self.assertEqual(ks.status_code, 200, ks.text)
@@ -124,7 +176,6 @@ class TestPhase8DeviceEnforcementPilot(unittest.TestCase):
                 )
                 self.assertEqual(approved.status_code, 200, approved.text)
 
-                h = {"X-ECIMS-TOKEN": agent["token"]}
                 commands = client.get(f"/api/v1/agents/{agent['agent_id']}/commands", headers=h)
                 self.assertEqual(commands.status_code, 200, commands.text)
                 self.assertGreaterEqual(len(commands.json()), 1)

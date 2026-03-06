@@ -27,6 +27,7 @@ class AgentRuntimeContext:
     state_file: Path
     tokens_file: Path
     event_queue_file: Path
+    used_allow_tokens_file: Path
     device_state_file: Path
     lock_file: Path
 
@@ -41,6 +42,7 @@ def build_runtime_context(state_dir: str, runtime_id: str) -> AgentRuntimeContex
         state_file=runtime_root / "agent_state.json",
         tokens_file=runtime_root / "agent_tokens.json",
         event_queue_file=runtime_root / "agent_event_queue.json",
+        used_allow_tokens_file=runtime_root / "agent_used_allow_tokens.json",
         device_state_file=runtime_root / "device_adapter_state.json",
         lock_file=runtime_root / "runtime.lock",
     )
@@ -48,7 +50,11 @@ def build_runtime_context(state_dir: str, runtime_id: str) -> AgentRuntimeContex
 
 def configure_runtime_storage(runtime: AgentRuntimeContext) -> None:
     set_state_file(runtime.state_file)
-    configure_store_paths(tokens_path=runtime.tokens_file, eventq_path=runtime.event_queue_file)
+    configure_store_paths(
+        tokens_path=runtime.tokens_file,
+        eventq_path=runtime.event_queue_file,
+        used_tokens_path=runtime.used_allow_tokens_file,
+    )
     set_device_state_file(runtime.device_state_file)
 
 

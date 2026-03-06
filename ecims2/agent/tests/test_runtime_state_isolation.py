@@ -21,11 +21,16 @@ class TestRuntimeStateIsolation(unittest.TestCase):
         self._orig_state_file = storage.STATE_FILE
         self._orig_tokens = offline_store.TOKENS
         self._orig_eventq = offline_store.EVENTQ
+        self._orig_used_tokens = offline_store.USED_ALLOW_TOKENS
         self._orig_device_state = device_adapter._STATE
 
     def tearDown(self) -> None:
         storage.set_state_file(self._orig_state_file)
-        offline_store.configure_store_paths(tokens_path=self._orig_tokens, eventq_path=self._orig_eventq)
+        offline_store.configure_store_paths(
+            tokens_path=self._orig_tokens,
+            eventq_path=self._orig_eventq,
+            used_tokens_path=self._orig_used_tokens,
+        )
         device_adapter.set_device_state_file(self._orig_device_state)
         self.temp_dir.cleanup()
 

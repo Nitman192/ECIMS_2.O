@@ -16,6 +16,11 @@ SEVERITY_MAP = {
     "NEW_FILE": "AMBER",
     "FILE_MODIFIED": "RED",
     "FILE_DELETED": "RED",
+    "USB_MASS_STORAGE_DETECTED": "RED",
+    "USB_PORT_BLOCKED": "RED",
+    "USB_BLOCK_FAILED": "RED",
+    "USB_BLOCK_WOULD_APPLY": "YELLOW",
+    "USB_PORT_UNBLOCKED": "GREEN",
 }
 
 
@@ -142,6 +147,21 @@ class EventService:
                                 "reason": decision.reason,
                             },
                         )
+
+                device_alert = EventService._device_alert_from_event(event)
+                if device_alert:
+                    EventService._create_alert(
+                        conn,
+                        agent_id,
+                        event_ts,
+                        device_alert["alert_type"],
+                        event.file_path,
+                        None,
+                        None,
+                        device_alert["message"],
+                        severity=device_alert["severity"],
+                    )
+                    alerts_created += 1
 
                 baseline = conn.execute(
                     "SELECT id, sha256 FROM baseline WHERE agent_id = ? AND file_path = ?",
@@ -272,6 +292,7 @@ class EventService:
         previous_sha256: str | None,
         new_sha256: str | None,
         message: str,
+        severity: str | None = None,
     ) -> None:
         cursor = conn.execute(
             """
@@ -282,7 +303,7 @@ class EventService:
                 agent_id,
                 ts,
                 alert_type,
-                SEVERITY_MAP[alert_type],
+                severity or SEVERITY_MAP.get(alert_type, "YELLOW"),
                 file_path,
                 previous_sha256,
                 new_sha256,
@@ -304,3 +325,55 @@ class EventService:
                 "new_sha256": new_sha256,
             },
         )
+
+    @staticmethod
+    def _device_alert_from_event(event: FileEventV1) -> dict[str, str] | None:
+        details = event.details_json or {}
+        device_id = str(details.get("device_id") or event.file_path or "unknown-device")
+        port_hint = str(details.get("bus") or details.get("location_paths") or "").strip()
+        result = str(details.get("result") or "").strip().lower()
+        port_segment = f" on {port_hint}" if port_hint else ""
+
+        if event.event_type == EventType.DEVICE_USB_MASS_STORAGE_DETECTED:
+            vid = str(details.get("vid") or "unknown").upper()
+            pid = str(details.get("pid") or "unknown").upper()
+            return {
+                "alert_type": "USB_MASS_STORAGE_DETECTED",
+                "severity": "RED",
+                "message": (
+                    f"USB mass-storage detected{port_segment} (device={device_id}, VID={vid}, PID={pid}). "
+                    "Containment required."
+                ),
+            }
+
+        if event.event_type == EventType.DEVICE_USB_BLOCK_APPLIED:
+            if result == "blocked":
+                return {
+                    "alert_type": "USB_PORT_BLOCKED",
+                    "severity": "RED",
+                    "message": f"USB mass-storage blocked at endpoint{port_segment} (device={device_id}).",
+                }
+            if result == "block_failed":
+                return {
+                    "alert_type": "USB_BLOCK_FAILED",
+                    "severity": "RED",
+                    "message": (
+                        f"USB mass-storage detected but block failed{port_segment} (device={device_id}). "
+                        "Endpoint requires admin intervention."
+                    ),
+                }
+            if result == "would_block":
+                return {
+                    "alert_type": "USB_BLOCK_WOULD_APPLY",
+                    "severity": "YELLOW",
+                    "message": f"USB mass-storage would be blocked in enforce mode{port_segment} (device={device_id}).",
+                }
+
+        if event.event_type == EventType.DEVICE_USB_UNBLOCK_APPLIED:
+            return {
+                "alert_type": "USB_PORT_UNBLOCKED",
+                "severity": "GREEN",
+                "message": f"USB mass-storage unblock applied{port_segment} (device={device_id}).",
+            }
+
+        return None

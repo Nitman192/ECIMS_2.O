@@ -48,3 +48,7 @@ class AgentCommandOut(BaseModel):
 class AgentCommandAckRequest(BaseModel):
     applied: bool
     error: str | None = Field(default=None, max_length=1024)
+
+
+class AgentDeviceAllowTokenConsumeRequest(BaseModel):
+    allow_token: str = Field(min_length=32, max_length=8192)

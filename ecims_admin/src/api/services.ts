@@ -19,6 +19,10 @@ import type {
   ChangeRequestItem,
   ChangeRequestListResponse,
   DeviceRolloutStatusResponse,
+  DeviceAllowTokenIssuePayload,
+  DeviceAllowTokenIssueResponse,
+  DeviceSecureDeclarePayload,
+  DeviceSecureDeclareResponse,
   FeatureFlag,
   FeatureFlagCreatePayload,
   FeatureFlagListResponse,
@@ -83,6 +87,10 @@ export const CoreApi = {
   metrics: () => api.get<AdminMetricsResponse>('/admin/metrics'),
   deviceRolloutStatus: () => api.get<DeviceRolloutStatusResponse>('/admin/device/rollout/status'),
   fleetDrift: () => api.get<FleetDriftResponse>('/admin/device/fleet/drift'),
+  secureDeclareDevice: (payload: DeviceSecureDeclarePayload) =>
+    api.post<DeviceSecureDeclareResponse>('/admin/device/secure-declare', payload),
+  issueDeviceAllowToken: (payload: DeviceAllowTokenIssuePayload) =>
+    api.post<DeviceAllowTokenIssueResponse>('/admin/device/allow-token', payload),
   agents: () => api.get<Agent[]>('/agents'),
   alerts: () => api.get<Alert[]>('/alerts'),
   securityStatus: () => api.get('/security/status'),

@@ -1,12 +1,53 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { CoreApi } from '../api/services';
+import { normalizeListResponse } from '../api/utils';
 import { Container } from '../components/ui/Container';
+import { Modal } from '../components/ui/Modal';
 import { useSessionTimeout } from '../hooks/useSessionTimeout';
 import { useAuth } from '../store/AuthContext';
+import type { Alert } from '../types';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 
 const SIDEBAR_COLLAPSE_STORAGE_KEY = 'ecims_admin_sidebar_collapsed_v1';
+
+const isCriticalUsbAlert = (alert: Alert): boolean => {
+  const severity = String(alert.severity || '').toUpperCase();
+  if (severity !== 'RED') return false;
+  const alertType = String(alert.alert_type || '').toUpperCase();
+  const message = String(alert.message || '').toLowerCase();
+  return alertType.includes('USB') || message.includes('usb') || message.includes('mass-storage') || message.includes('mass storage');
+};
+
+const playCriticalAlarmTone = () => {
+  const AudioCtx = window.AudioContext;
+  if (!AudioCtx) return;
+  try {
+    const ctx = new AudioCtx();
+    const pattern = [920, 640, 980];
+    pattern.forEach((freq, index) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      gain.gain.value = 0.0001;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const start = ctx.currentTime + index * 0.16;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.18, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.14);
+      osc.start(start);
+      osc.stop(start + 0.15);
+    });
+    window.setTimeout(() => {
+      void ctx.close();
+    }, 1200);
+  } catch {
+    // ignore audio errors caused by browser autoplay restrictions
+  }
+};
 
 const getInitialCollapsed = () => {
   if (typeof window === 'undefined') return false;
@@ -23,6 +64,8 @@ const getInitialCollapsed = () => {
 export const AppLayout = () => {
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [criticalUsbAlert, setCriticalUsbAlert] = useState<Alert | null>(null);
+  const lastSeenAlertIdRef = useRef<number>(0);
 
   const { token, user, clearSession } = useAuth();
   const navigate = useNavigate();
@@ -93,6 +136,56 @@ export const AppLayout = () => {
     };
   }, [mobileOpen]);
 
+  useEffect(() => {
+    if (!token || !user) {
+      lastSeenAlertIdRef.current = 0;
+      setCriticalUsbAlert(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollAlerts = async (initial: boolean) => {
+      try {
+        const response = await CoreApi.alerts();
+        if (cancelled) return;
+        const alerts = normalizeListResponse<Alert>(response.data);
+        const latestId = alerts.reduce((acc, item) => Math.max(acc, Number(item.id) || 0), 0);
+
+        if (initial && lastSeenAlertIdRef.current === 0) {
+          lastSeenAlertIdRef.current = latestId;
+          return;
+        }
+
+        const newCritical = alerts
+          .filter((item) => (Number(item.id) || 0) > lastSeenAlertIdRef.current)
+          .filter(isCriticalUsbAlert)
+          .sort((left, right) => (Number(right.id) || 0) - (Number(left.id) || 0));
+
+        if (newCritical.length > 0) {
+          setCriticalUsbAlert(newCritical[0]);
+          playCriticalAlarmTone();
+        }
+
+        if (latestId > lastSeenAlertIdRef.current) {
+          lastSeenAlertIdRef.current = latestId;
+        }
+      } catch {
+        // polling should stay silent on transient API errors
+      }
+    };
+
+    void pollAlerts(true);
+    const timer = window.setInterval(() => {
+      void pollAlerts(false);
+    }, 7000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [token, user]);
+
   return (
     <div className="min-h-screen overflow-x-clip bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <Sidebar
@@ -146,6 +239,23 @@ export const AppLayout = () => {
           </div>
         </>
       )}
+
+      <Modal
+        open={Boolean(criticalUsbAlert)}
+        title="Critical USB Security Incident"
+        description={criticalUsbAlert?.message ?? 'Mass-storage activity detected on a protected endpoint.'}
+        confirmLabel="Open Alerts"
+        cancelLabel="Acknowledge"
+        onConfirm={() => {
+          setCriticalUsbAlert(null);
+          navigate('/alerts');
+        }}
+        onCancel={() => setCriticalUsbAlert(null)}
+      >
+        <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">
+          Mass-storage detected. Endpoint containment workflow triggered. Verify secure declare or one-time unlock action.
+        </div>
+      </Modal>
     </div>
   );
 };

@@ -93,12 +93,16 @@ def run(config_path: str, runtime_id_override: str | None = None, state_dir_over
                 client.post_events(state["agent_id"], state["token"], events)
                 device_mgr.mark_server_contact()
 
-            for device in adapter.detect_mass_storage():
-                known_devices[device.device_id] = device
+            current_devices = {device.device_id: device for device in adapter.detect_mass_storage()}
+            for device_id, device in current_devices.items():
+                if device_id in known_devices:
+                    continue
+                known_devices[device_id] = device
                 device_events = device_mgr.build_detection_events(device)
                 client.post_events(state["agent_id"], state["token"], device_events)
                 device_mgr.maybe_block_device(client, state["agent_id"], state["token"], adapter, device)
                 device_mgr.mark_server_contact()
+            known_devices = current_devices
 
             now = time.time()
             if now - last_cmd_poll >= config.command_poll_interval_sec:

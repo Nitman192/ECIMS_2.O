@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +52,7 @@ class DeviceAllowTokenService:
             "agent_id": agent_id,
             "issued_at": now.isoformat(),
             "expires_at": (now + timedelta(minutes=duration)).isoformat(),
+            "single_use": True,
             "scope": scope,
             "reason": justification,
             "policy_version": policy_version,
@@ -93,6 +94,45 @@ class DeviceAllowTokenService:
             return True
 
     @staticmethod
+    def consume_token(*, token: str, agent_id: int, public_key_path: str) -> tuple[bool, str, dict[str, Any] | None]:
+        claims = DeviceAllowTokenService.verify_token_offline(token, public_key_path)
+        if not claims:
+            return False, "TOKEN_INVALID_OR_EXPIRED", None
+
+        token_id = str(claims.get("token_id") or "").strip()
+        if not token_id:
+            return False, "TOKEN_INVALID_OR_EXPIRED", None
+        if int(claims.get("agent_id", -1)) != agent_id:
+            return False, "TOKEN_AGENT_MISMATCH", None
+
+        now = utcnow()
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT token_id, agent_id, expires_at, status FROM device_allow_tokens WHERE token_id = ?",
+                (token_id,),
+            ).fetchone()
+            if not row:
+                return False, "TOKEN_NOT_FOUND", claims
+            if int(row["agent_id"]) != agent_id:
+                return False, "TOKEN_AGENT_MISMATCH", claims
+
+            status = str(row["status"] or "").upper()
+            expires_at = DeviceAllowTokenService._parse_iso(str(row["expires_at"] or ""))
+            if expires_at and now > expires_at:
+                if status == "ACTIVE":
+                    conn.execute("UPDATE device_allow_tokens SET status = 'EXPIRED' WHERE token_id = ?", (token_id,))
+                return False, "TOKEN_EXPIRED", claims
+            if status == "REVOKED":
+                return False, "TOKEN_REVOKED", claims
+            if status == "CONSUMED":
+                return False, "TOKEN_ALREADY_USED", claims
+            if status != "ACTIVE":
+                return False, f"TOKEN_STATUS_{status or 'UNKNOWN'}", claims
+
+            conn.execute("UPDATE device_allow_tokens SET status = 'CONSUMED' WHERE token_id = ?", (token_id,))
+            return True, "CONSUMED", claims
+
+    @staticmethod
     def verify_token_offline(token: str, public_key_path: str) -> dict[str, Any] | None:
         try:
             payload_b64, sig_b64 = token.split(".", 1)
@@ -106,8 +146,19 @@ class DeviceAllowTokenService:
                 hashes.SHA256(),
             )
             claims = json.loads(payload.decode("utf-8"))
-            if utcnow().isoformat() > claims.get("expires_at", ""):
+            expires_at = DeviceAllowTokenService._parse_iso(str(claims.get("expires_at", "")))
+            if not expires_at or utcnow() > expires_at:
                 return None
             return claims
         except Exception:
             return None
+
+    @staticmethod
+    def _parse_iso(value: str) -> datetime | None:
+        try:
+            dt = datetime.fromisoformat(value)
+        except Exception:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)

@@ -35,6 +35,7 @@ from app.schemas.admin import (
     DeviceAllowTokenIssueRequest,
     DeviceAllowTokenRevokeRequest,
     DeviceKillSwitchRequest,
+    DeviceSecureDeclareRequest,
     DeviceSetAgentModeRequest,
     FeatureFlagCreateRequest,
     FeatureFlagSetStateRequest,
@@ -56,6 +57,7 @@ from app.schemas.admin import (
 from app.schemas.ai import AIScoreRunRequest, AITrainRequest
 from app.schemas.agent import (
     AgentCommandAckRequest,
+    AgentDeviceAllowTokenConsumeRequest,
     AgentEnrollRequest,
     AgentCommandOut,
     AgentHeartbeatRequest,
@@ -646,6 +648,47 @@ def agent_device_status(agent_id: int, payload: dict, request: Request, x_ecims_
             ),
         )
     return {"status": "ok"}
+
+
+@router.post("/agents/{agent_id}/device/allow-token/consume")
+def agent_consume_allow_token(
+    agent_id: int,
+    payload: AgentDeviceAllowTokenConsumeRequest,
+    request: Request,
+    x_ecims_token: str = Header(default=""),
+):
+    require_mtls_client_identity(request, claimed_agent_id=agent_id)
+    validate_token(agent_id, x_ecims_token)
+    settings = get_settings()
+    ok, reason, claims = DeviceAllowTokenService.consume_token(
+        token=payload.allow_token,
+        agent_id=agent_id,
+        public_key_path=settings.device_allow_token_public_key_path,
+    )
+    if not ok:
+        if reason in {"TOKEN_ALREADY_USED"}:
+            raise HTTPException(status_code=409, detail=reason)
+        if reason in {"TOKEN_REVOKED", "TOKEN_EXPIRED"}:
+            raise HTTPException(status_code=403, detail=reason)
+        if reason in {"TOKEN_NOT_FOUND"}:
+            raise HTTPException(status_code=404, detail=reason)
+        raise HTTPException(status_code=400, detail=reason)
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="AGENT",
+            actor_id=agent_id,
+            action="device.allow_token.consumed",
+            target_type="DEVICE_ALLOW_TOKEN",
+            target_id=claims.get("token_id") if claims else None,
+            message="Device allow token consumed by agent",
+            metadata={"agent_id": agent_id},
+        )
+    return {
+        "status": "consumed",
+        "token_id": claims.get("token_id") if claims else None,
+        "expires_at": claims.get("expires_at") if claims else None,
+    }
 
 
 @router.get("/agents/{agent_id}/self/status")
@@ -2043,6 +2086,59 @@ def issue_device_allow_token(payload: DeviceAllowTokenIssueRequest, admin: dict 
             metadata={"agent_id": payload.agent_id, "expires_at": claims["expires_at"]},
         )
     return {"token": token, "claims": claims}
+
+
+@router.post("/admin/device/secure-declare")
+def secure_declare_device(payload: DeviceSecureDeclareRequest, admin: dict = Depends(require_admin)):
+    policy_state = get_policy_state()
+    duration = max(1, int(payload.duration_minutes))
+    token, claims = DeviceAllowTokenService.issue_token(
+        agent_id=payload.agent_id,
+        duration_minutes=duration,
+        scope={},
+        justification=payload.reason,
+        policy_version=policy_state.reason,
+    )
+
+    AgentCommandService.enqueue(
+        payload.agent_id,
+        "DEVICE_APPLY_POLICY_HASH",
+        {"policy_hash": policy_state.reason},
+    )
+    command_id = AgentCommandService.enqueue(
+        payload.agent_id,
+        "DEVICE_UNBLOCK",
+        {
+            "duration_minutes": duration,
+            "justification": payload.reason,
+            "allow_token": token,
+            "token_id": claims["token_id"],
+            "source": "secure_declare",
+        },
+    )
+    with get_db() as conn:
+        AuditService.log(
+            conn,
+            actor_type="ADMIN",
+            actor_id=admin["id"],
+            action="device.secure_declared",
+            target_type="AGENT",
+            target_id=payload.agent_id,
+            message="Agent declared secure and unblock command issued",
+            metadata={
+                "agent_id": payload.agent_id,
+                "duration_minutes": duration,
+                "command_id": command_id,
+                "token_id": claims["token_id"],
+            },
+        )
+    return {
+        "status": "issued",
+        "agent_id": payload.agent_id,
+        "command_id": command_id,
+        "claims": claims,
+        "token": token,
+    }
 
 
 @router.post("/admin/device/allow-token/revoke")

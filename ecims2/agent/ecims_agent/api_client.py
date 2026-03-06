@@ -182,3 +182,15 @@ class ApiClient:
             timeout=15,
         )
         response.raise_for_status()
+
+    def consume_allow_token(self, agent_id: int, token: str, allow_token: str) -> dict:
+        headers = {"X-ECIMS-TOKEN": token}
+        headers.update(self._client_cert_header())
+        response = self.session.post(
+            f"{self.server_url}/api/v1/agents/{agent_id}/device/allow-token/consume",
+            headers=headers,
+            json={"allow_token": allow_token},
+            timeout=15,
+        )
+        response.raise_for_status()
+        return response.json()

@@ -182,6 +182,41 @@ export interface DeviceRolloutStatusResponse {
   command_backlog: Record<string, number>;
 }
 
+export interface DeviceAllowTokenClaims {
+  token_id: string;
+  agent_id: number;
+  expires_at: string;
+  [key: string]: unknown;
+}
+
+export interface DeviceAllowTokenIssuePayload {
+  agent_id: number;
+  duration_minutes: number;
+  vid?: string | null;
+  pid?: string | null;
+  serial?: string | null;
+  justification: string;
+}
+
+export interface DeviceAllowTokenIssueResponse {
+  token: string;
+  claims: DeviceAllowTokenClaims;
+}
+
+export interface DeviceSecureDeclarePayload {
+  agent_id: number;
+  reason: string;
+  duration_minutes: number;
+}
+
+export interface DeviceSecureDeclareResponse {
+  status: string;
+  agent_id: number;
+  command_id: number;
+  token: string;
+  claims: DeviceAllowTokenClaims;
+}
+
 export interface AdminMetricsResponse {
   request_id: string;
   agent_commands_pending: number;
