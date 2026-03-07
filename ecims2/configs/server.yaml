@@ -27,6 +27,9 @@ ai_artifact_dir: "ai_artifacts"
 license_path: "configs/license.ecims"
 # Optional explicit public key path for signature verification
 license_public_key_path: "server/app/license/public_key.pem"
+activation_required: false
+activation_state_path: "configs/license_activation_state.json"
+activation_request_ttl_hours: 72
 
 # Security policy (signed)
 security_policy_path: "configs/security.policy.json"

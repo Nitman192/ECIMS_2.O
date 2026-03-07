@@ -33,6 +33,7 @@ from la_gui.ui.pages.license_signing_page import LicenseSigningPage
 from la_gui.ui.pages.mtls_ca_page import MTLSCAPage
 from la_gui.ui.pages.revocation_page import RevocationPage
 from la_gui.ui.pages.root_key_page import RootKeyPage
+from la_gui.ui.pages.server_activation_page import ServerActivationPage
 from la_gui.ui.pages.wizard_page import WizardPage
 from la_gui.ui.role_service import can_perform
 from la_gui.ui.settings_dialog import SettingsDialog
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
         self.dashboard_page = DashboardPage(state, self.show_status)
         self.root_key_page = RootKeyPage(state, self.show_status)
         self.license_page = LicenseSigningPage(state, self.show_status)
+        self.activation_page = ServerActivationPage(state, self.show_status)
         self.mtls_page = MTLSCAPage(state, self.show_status)
         self.data_key_page = DataKeysPage(state, self.show_status)
         self.revocation_page = RevocationPage(state, self.show_status)
@@ -163,6 +165,7 @@ class MainWindow(QMainWindow):
             self._add_page("Dashboard", self.dashboard_page)
             self._add_page("Root Key Management", self.root_key_page)
             self._add_page("License Signing", self.license_page)
+            self._add_page("Server Activation", self.activation_page)
             self._add_page("mTLS CA Management", self.mtls_page)
             self._add_page("Data Key Bundles", self.data_key_page)
             self._add_page("Revocation", self.revocation_page)

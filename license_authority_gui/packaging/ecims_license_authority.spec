@@ -1,12 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = collect_submodules('PySide6')
+project_root = Path(SPECPATH).resolve().parent
 
 a = Analysis(
-    ['app.py'],
-    pathex=[],
+    [str(project_root / 'app.py')],
+    pathex=[str(project_root)],
     binaries=[],
     datas=[],
     hiddenimports=hiddenimports,

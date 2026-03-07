@@ -56,6 +56,10 @@ class StoragePaths:
     def activity_log_path(self) -> Path:
         return self.config_dir / "audit_log.jsonl"
 
+    @property
+    def activation_registry_path(self) -> Path:
+        return self.config_dir / "activation_registry.json"
+
     def ensure_directories(self) -> None:
         """Create all required directories with parent support."""
         for directory in [self.keys_dir, self.logs_dir, self.exports_dir, self.config_dir]:

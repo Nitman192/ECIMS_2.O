@@ -1,6 +1,6 @@
 # License Authority GUI (ECIMS 2.0)
 
-> **Phase 4 status:** Hardening, diagnostics export, packaging assets, and Quick Start wizard mode are implemented.
+> **Phase 7 status:** Hardening, diagnostics export, packaging assets, Quick Start wizard mode, and Server Activation handshake page are implemented.
 
 ## Offline Security Rules
 
@@ -80,6 +80,18 @@ license_authority_gui/
 - required: `license.json`, `la_public_key.pem`
 - optional: `mtls_ca_cert.pem`, `mtls_chain.pem`, `revocation.json`, `data_key_bundle.json`
 - `manifest.json` with file SHA-256 values + `manifest_sha256`
+
+## Server Activation Handshake (New)
+
+- New page: **Server Activation** (advanced mode) for:
+  - parsing server `request_code`
+  - generating signed `verification_id`
+  - maintaining local activated-client registry
+  - showing 7-day license expiry alerts from registry data
+- Typical sequence:
+  1. Server issues activation `request_code`
+  2. License Authority generates `verification_id`
+  3. Operator pastes verification token back to server activation endpoint
 
 ## Operational SOP
 

@@ -28,6 +28,9 @@ class Settings(BaseModel):
     ai_artifact_dir: str = "ai_artifacts"
     license_path: str = "configs/license.ecims"
     license_public_key_path: str = "server/app/license/public_key.pem"
+    activation_required: bool = False
+    activation_state_path: str = "configs/license_activation_state.json"
+    activation_request_ttl_hours: int = Field(default=72, ge=1, le=168)
 
     security_policy_path: str = "configs/security.policy.json"
     security_policy_sig_path: str = "configs/security.policy.sig"
@@ -94,6 +97,8 @@ def get_settings() -> Settings:
     _apply_env_override(raw, "ai_artifact_dir", "ECIMS_AI_ARTIFACT_DIR")
     _apply_env_override(raw, "license_path", "ECIMS_LICENSE_PATH")
     _apply_env_override(raw, "license_public_key_path", "ECIMS_LICENSE_PUBLIC_KEY_PATH")
+    _apply_env_override(raw, "activation_state_path", "ECIMS_ACTIVATION_STATE_PATH")
+    _apply_env_override(raw, "activation_request_ttl_hours", "ECIMS_ACTIVATION_REQUEST_TTL_HOURS")
     _apply_env_override(raw, "security_policy_path", "ECIMS_SECURITY_POLICY_PATH")
     _apply_env_override(raw, "security_policy_sig_path", "ECIMS_SECURITY_POLICY_SIG_PATH")
     _apply_env_override(raw, "security_policy_public_key_path", "ECIMS_SECURITY_POLICY_PUBLIC_KEY_PATH")
@@ -155,5 +160,9 @@ def get_settings() -> Settings:
     env_admin_console_enabled = os.getenv("ECIMS_ADMIN_CONSOLE_ENABLED")
     if env_admin_console_enabled:
         raw["admin_console_enabled"] = env_admin_console_enabled.strip().lower() in {"1", "true", "yes"}
+
+    env_activation_required = os.getenv("ECIMS_ACTIVATION_REQUIRED")
+    if env_activation_required:
+        raw["activation_required"] = env_activation_required.strip().lower() in {"1", "true", "yes"}
 
     return Settings(**raw)

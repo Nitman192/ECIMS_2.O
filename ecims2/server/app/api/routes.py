@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse
@@ -17,8 +19,15 @@ from app.api.deps import (
 )
 from app.core.config import get_settings
 from app.db.database import get_db
+from app.licensing_core.activation import (
+    apply_activation_verification,
+    build_activation_request,
+    get_activation_status,
+    resolve_activation_state_path,
+)
+from app.licensing_core.loader import load_license, parse_license_key_text, validate_license_document
 from app.licensing_core.policy_state import get_policy_state
-from app.licensing_core.state import get_license_state
+from app.licensing_core.state import get_license_state, set_license_state
 from app.models.user import UserRole
 from app.schemas.admin import (
     AgentRevokeRequest,
@@ -70,6 +79,7 @@ from app.schemas.agent import (
 from app.schemas.alert import AlertOut
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.event import EventBatchRequest, EventBatchResponse
+from app.schemas.licensing import ActivationIssueRequest, ActivationLicenseKeyRequest, ActivationVerificationRequest
 from app.schemas.user import (
     AdminUserActiveUpdateRequest,
     AdminUserCreateRequest,
@@ -105,6 +115,34 @@ from app.utils.time import utcnow
 from app.utils.request_context import REQUEST_ID
 
 router = APIRouter()
+
+
+def _resolve_runtime_path(path_str: str) -> Path:
+    candidate = Path(path_str)
+    if candidate.is_absolute():
+        return candidate
+    root = Path(__file__).resolve().parents[3]
+    return root / candidate
+
+
+def _refresh_license_state() -> dict:
+    settings = get_settings()
+    state = load_license(
+        license_path=str(_resolve_runtime_path(settings.license_path)),
+        public_key_path=str(_resolve_runtime_path(settings.license_public_key_path)),
+        activation_required=bool(settings.activation_required),
+        activation_state_path=str(_resolve_runtime_path(settings.activation_state_path)),
+    )
+    set_license_state(state)
+    return {
+        "is_valid": state.valid,
+        "reason": state.reason,
+    }
+
+
+def _resolve_activation_state_path_from_settings() -> Path:
+    settings = get_settings()
+    return resolve_activation_state_path(str(_resolve_runtime_path(settings.activation_state_path)))
 
 
 def _to_user_out(user: dict) -> UserOut:
@@ -715,10 +753,130 @@ def get_agents():
     return AgentService.list_agents(settings.offline_threshold_sec)
 
 
+@router.get("/license/activation/status")
+def license_activation_status():
+    settings = get_settings()
+    status_payload = get_activation_status(
+        state_path=_resolve_activation_state_path_from_settings(),
+        activation_required=bool(settings.activation_required),
+    )
+    state = get_license_state()
+    return {
+        **status_payload,
+        "license_valid": state.valid,
+        "license_reason": state.reason,
+        "license_id": state.payload.license_id if state.payload else None,
+        "machine_match": state.machine_match,
+        "local_fingerprint_short": state.local_fingerprint_short,
+    }
+
+
+@router.post("/license/activation/license-key")
+def license_activation_import_license_key(payload: ActivationLicenseKeyRequest):
+    settings = get_settings()
+    try:
+        license_doc = parse_license_key_text(payload.license_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="LICENSE_KEY_INVALID_JSON") from exc
+
+    validation = validate_license_document(
+        document=license_doc,
+        public_key_path=str(_resolve_runtime_path(settings.license_public_key_path)),
+        activation_required=False,
+    )
+    if not validation.valid or validation.payload is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"LICENSE_INVALID:{validation.reason}")
+
+    license_path = _resolve_runtime_path(settings.license_path)
+    license_path.parent.mkdir(parents=True, exist_ok=True)
+    license_path.write_text(json.dumps(license_doc, indent=2, sort_keys=True), encoding="utf-8")
+
+    activation = build_activation_request(
+        payload=validation.payload,
+        state_path=_resolve_activation_state_path_from_settings(),
+        ttl_hours=settings.activation_request_ttl_hours,
+    )
+    current = _refresh_license_state()
+    return {
+        "status": "license_imported",
+        "license_id": validation.payload.license_id,
+        "installation_id": activation["installation_id"],
+        "request_code": activation["request_code"],
+        "expires_at": activation["expires_at"],
+        "machine_fingerprint_short": activation["machine_fingerprint_short"],
+        "license_state": current,
+    }
+
+
+@router.post("/license/activation/request")
+def license_activation_issue_request(payload: ActivationIssueRequest):
+    settings = get_settings()
+    current = load_license(
+        license_path=str(_resolve_runtime_path(settings.license_path)),
+        public_key_path=str(_resolve_runtime_path(settings.license_public_key_path)),
+        activation_required=False,
+        activation_state_path=str(_resolve_runtime_path(settings.activation_state_path)),
+    )
+    if not current.valid or current.payload is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"LICENSE_INVALID:{current.reason}")
+
+    state_path = _resolve_activation_state_path_from_settings()
+    status_payload = get_activation_status(state_path=state_path, activation_required=bool(settings.activation_required))
+    already_active = bool(status_payload.get("is_activated"))
+    if already_active and not payload.force_new:
+        return {
+            "status": "already_activated",
+            "license_id": current.payload.license_id,
+            "activation": status_payload.get("activated"),
+        }
+
+    activation = build_activation_request(
+        payload=current.payload,
+        state_path=state_path,
+        ttl_hours=settings.activation_request_ttl_hours,
+    )
+    _refresh_license_state()
+    return {
+        "status": "request_issued",
+        "license_id": current.payload.license_id,
+        "installation_id": activation["installation_id"],
+        "request_code": activation["request_code"],
+        "expires_at": activation["expires_at"],
+        "machine_fingerprint_short": activation["machine_fingerprint_short"],
+    }
+
+
+@router.post("/license/activation/verify")
+def license_activation_verify(payload: ActivationVerificationRequest):
+    settings = get_settings()
+    state_path = _resolve_activation_state_path_from_settings()
+    try:
+        activated = apply_activation_verification(
+            token=payload.verification_id,
+            state_path=state_path,
+            public_key_path=str(_resolve_runtime_path(settings.license_public_key_path)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    current = _refresh_license_state()
+    return {
+        "status": "activated" if current["is_valid"] else "activation_recorded_but_license_invalid",
+        "license_state": current,
+        "activation": activated,
+    }
+
+
 @router.get("/license/status")
 def license_status(_: dict = Depends(require_admin)):
     state = get_license_state()
     payload = state.payload
+    activation = get_activation_status(
+        state_path=_resolve_activation_state_path_from_settings(),
+        activation_required=bool(get_settings().activation_required),
+    )
     return {
         "is_valid": state.valid,
         "reason": state.reason,
@@ -734,6 +892,9 @@ def license_status(_: dict = Depends(require_admin)):
         "machine_match": state.machine_match,
         "local_fingerprint_short": state.local_fingerprint_short,
         "valid": state.valid,
+        "activation_required": activation["activation_required"],
+        "activation_is_activated": activation["is_activated"],
+        "activation_pending_request": activation["pending_request"],
     }
 
 

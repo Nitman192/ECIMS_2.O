@@ -21,7 +21,7 @@ from app.db.database import get_db, init_db
 from app.licensing_core.loader import load_license
 from app.licensing_core.policy import load_security_policy
 from app.licensing_core.policy_state import set_policy_state
-from app.licensing_core.state import set_license_state
+from app.licensing_core.state import get_license_state, set_license_state
 from app.services.audit_service import AuditService
 from app.security.storage_crypto import get_crypto_status
 from app.services.maintenance_schedule_service import MaintenanceScheduleService
@@ -106,6 +106,17 @@ class SlidingWindowRateLimiter:
 _rate_limiter = SlidingWindowRateLimiter()
 _maintenance_scheduler_stop = threading.Event()
 _maintenance_scheduler_thread: threading.Thread | None = None
+_ACTIVATION_ALLOWED_PATH_PREFIXES = (
+    "/health",
+    f"{settings.api_prefix}/license/activation",
+)
+_ACTIVATION_ALLOWED_PATHS = {
+    "/health",
+    f"{settings.api_prefix}/license/activation/status",
+    f"{settings.api_prefix}/license/activation/license-key",
+    f"{settings.api_prefix}/license/activation/request",
+    f"{settings.api_prefix}/license/activation/verify",
+}
 
 
 def _resolve_path(path_str: str) -> str:
@@ -267,6 +278,36 @@ async def request_id_middleware(request: Request, call_next):
     finally:
         REQUEST_ID.reset(token)
 
+
+@app.middleware("http")
+async def activation_gate(request: Request, call_next):
+    if not settings.activation_required:
+        return await call_next(request)
+
+    if request.method.upper() == "OPTIONS":
+        return await call_next(request)
+
+    path = request.url.path.rstrip("/") or "/"
+    if path in _ACTIVATION_ALLOWED_PATHS:
+        return await call_next(request)
+    if any(path.startswith(prefix) for prefix in _ACTIVATION_ALLOWED_PATH_PREFIXES):
+        return await call_next(request)
+    if path.startswith("/assets"):
+        return await call_next(request)
+
+    license_state = get_license_state()
+    if license_state.valid:
+        return await call_next(request)
+
+    return JSONResponse(
+        status_code=423,
+        content={
+            "detail": "Server activation required before this route can be used.",
+            "reason": license_state.reason,
+            "activation_status_path": f"{settings.api_prefix}/license/activation/status",
+        },
+    )
+
 @app.middleware("http")
 async def request_size_limit(request: Request, call_next):
     upload_patch_path = f"{settings.api_prefix}/admin/ops/patch-updates/upload"
@@ -359,6 +400,8 @@ def on_startup() -> None:
     license_state = load_license(
         license_path=_resolve_path(settings.license_path),
         public_key_path=public_key_path,
+        activation_required=bool(settings.activation_required),
+        activation_state_path=_resolve_path(settings.activation_state_path),
     )
     set_license_state(license_state)
 

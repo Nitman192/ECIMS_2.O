@@ -16,8 +16,10 @@ set "PYI_DIST=%BUILD_ROOT%\dist"
 set "OUT_ROOT=%CD%\dist\windows_executables"
 set "OUT_SERVER=%OUT_ROOT%\server"
 set "OUT_CLIENT=%OUT_ROOT%\client"
+set "OUT_ACTIVATION=%OUT_ROOT%\activation"
 set "ADMIN_ROOT=%CD%\..\ecims_admin"
 set "ADMIN_DIST=%ADMIN_ROOT%\dist"
+set "LA_ROOT=%CD%\..\license_authority_gui"
 
 if not exist "%ADMIN_ROOT%\package.json" (
   echo [ERROR] Admin frontend project not found at %ADMIN_ROOT%
@@ -77,6 +79,7 @@ mkdir "%PYI_SPEC%" >nul
 mkdir "%PYI_DIST%" >nul
 mkdir "%OUT_SERVER%" >nul
 mkdir "%OUT_CLIENT%" >nul
+mkdir "%OUT_ACTIVATION%" >nul
 
 echo [INFO] Building server executable...
 "%PYTHON%" -m PyInstaller --noconfirm --clean --onefile --name ecims_server ^
@@ -169,10 +172,38 @@ if exist "configs\device_allow_token_public.pem" copy /Y "configs\device_allow_t
   echo 3^) Start headless agent: start_agent.cmd client-a
 )
 
+if exist "%LA_ROOT%\app.py" (
+  echo [INFO] Building License Authority activation app executable...
+  pushd "%LA_ROOT%"
+  powershell -NoProfile -ExecutionPolicy Bypass -File ".\packaging\build_windows.ps1" -UseSpec
+  if errorlevel 1 (
+    popd
+    echo [ERROR] License Authority executable build failed
+    exit /b 1
+  )
+  popd
+  if not exist "%LA_ROOT%\dist\ECIMS_License_Authority.exe" (
+    echo [ERROR] License Authority executable not found after build
+    exit /b 1
+  )
+  copy /Y "%LA_ROOT%\dist\ECIMS_License_Authority.exe" "%OUT_ACTIVATION%\ECIMS_License_Authority.exe" >nul
+  > "%OUT_ACTIVATION%\README-RUN.txt" (
+    echo ECIMS Activation App EXE Package
+    echo.
+    echo 1^) Start ECIMS_License_Authority.exe on offline licensing workstation.
+    echo 2^) Use Server Activation page to convert server request_code into verification ID.
+    echo 3^) Paste verification ID back on target server.
+  )
+) else (
+  echo [WARN] license_authority_gui not found. Skipping activation app package.
+)
+
 set "SERVER_ZIP=%OUT_ROOT%\ecims_server_windows.zip"
 set "CLIENT_ZIP=%OUT_ROOT%\ecims_client_windows.zip"
+set "ACTIVATION_ZIP=%OUT_ROOT%\ecims_activation_app_windows.zip"
 if exist "%SERVER_ZIP%" del /f /q "%SERVER_ZIP%" >nul
 if exist "%CLIENT_ZIP%" del /f /q "%CLIENT_ZIP%" >nul
+if exist "%ACTIVATION_ZIP%" del /f /q "%ACTIVATION_ZIP%" >nul
 
 powershell -NoProfile -Command "Compress-Archive -Path '%OUT_SERVER%\\*' -DestinationPath '%SERVER_ZIP%' -Force"
 if errorlevel 1 (
@@ -184,11 +215,20 @@ if errorlevel 1 (
   echo [ERROR] Failed to create client zip archive
   exit /b 1
 )
+if exist "%OUT_ACTIVATION%\ECIMS_License_Authority.exe" (
+  powershell -NoProfile -Command "Compress-Archive -Path '%OUT_ACTIVATION%\\*' -DestinationPath '%ACTIVATION_ZIP%' -Force"
+  if errorlevel 1 (
+    echo [ERROR] Failed to create activation app zip archive
+    exit /b 1
+  )
+)
 
 echo [DONE] Windows executable packages are ready:
 echo        %OUT_SERVER%
 echo        %OUT_CLIENT%
+echo        %OUT_ACTIVATION%
 echo        %SERVER_ZIP%
 echo        %CLIENT_ZIP%
+if exist "%ACTIVATION_ZIP%" echo        %ACTIVATION_ZIP%
 echo [NEXT] Copy these folders to separate PCs and run start_*.cmd
 exit /b 0

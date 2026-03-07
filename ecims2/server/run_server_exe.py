@@ -30,10 +30,12 @@ def _bootstrap_environment(root: Path, environment: str) -> None:
         os.environ.setdefault("ECIMS_MTLS_REQUIRED", "0")
 
     os.environ.setdefault("ECIMS_DB_PATH", str(root / "ecims2.db"))
+    os.environ.setdefault("ECIMS_ACTIVATION_REQUIRED", "1")
 
     configs_dir = root / "configs"
     _set_default_path("ECIMS_LICENSE_PATH", configs_dir / "license.ecims")
     _set_default_path("ECIMS_LICENSE_PUBLIC_KEY_PATH", configs_dir / "license.public_key.pem")
+    _set_default_path("ECIMS_ACTIVATION_STATE_PATH", configs_dir / "license_activation_state.json")
     _set_default_path("ECIMS_SECURITY_POLICY_PATH", configs_dir / "security.policy.json")
     _set_default_path("ECIMS_SECURITY_POLICY_SIG_PATH", configs_dir / "security.policy.sig")
     _set_default_path("ECIMS_SECURITY_POLICY_PUBLIC_KEY_PATH", configs_dir / "security.policy.public.pem")
