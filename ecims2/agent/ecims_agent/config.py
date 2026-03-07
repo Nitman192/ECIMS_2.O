@@ -37,6 +37,9 @@ class AgentConfig:
     token_public_key_path: str = "configs/device_allow_token_public.pem"
     local_event_queue_retention_hours: int = 72
     enforcement_grace_seconds: int = 0
+    allow_power_actions: bool = False
+    allow_windows_update_push: bool = True
+    windows_update_timeout_sec: int = 1800
 
 
 def load_config(path: str) -> AgentConfig:
@@ -80,4 +83,7 @@ def load_config(path: str) -> AgentConfig:
         token_public_key_path=str(raw.get("token_public_key_path", "configs/device_allow_token_public.pem")),
         local_event_queue_retention_hours=int(raw.get("local_event_queue_retention_hours", 72)),
         enforcement_grace_seconds=int(raw.get("enforcement_grace_seconds", 0)),
+        allow_power_actions=bool(raw.get("allow_power_actions", False)),
+        allow_windows_update_push=bool(raw.get("allow_windows_update_push", True)),
+        windows_update_timeout_sec=max(60, int(raw.get("windows_update_timeout_sec", 1800))),
     )

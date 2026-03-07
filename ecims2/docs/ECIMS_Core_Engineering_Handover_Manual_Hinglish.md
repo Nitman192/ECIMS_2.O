@@ -110,6 +110,7 @@ Important note:
 | `patch_update_service.py` | Patch package upload, indexing, retrieval, status marking |
 | `device_policy_service.py`, `device_control_state_service.py`, `device_allow_token_service.py` | Device control policies, state, allow-token issue/revoke |
 | `audit_service.py` | Centralized audit entry writes |
+| `licensing_core/activation.py` | Server activation handshake state (installation/request/verification) |
 
 ---
 
@@ -195,6 +196,9 @@ If question aaye "license invalid kyu" ya "mTLS identity chain kaha se trust hot
 7. Maintenance scheduler and discovery service start.
 8. API router mount + admin frontend static mount.
 
+Activation-specific add-on:
+- Agar `activation_required=true` hai, to non-activation APIs 423 gate ke peeche chali jati hain jab tak verification complete na ho.
+
 ## 10.2 Agent runtime flow
 
 1. `main.py` load config + resolve server URL (discovery fallback possible).
@@ -226,6 +230,38 @@ If question aaye "license invalid kyu" ya "mTLS identity chain kaha se trust hot
 
 Critical truth:
 - Current design me server direct binary auto-push nahi karta; rollout intentionally controlled/manual + auditable hai.
+
+## 10.5 License activation handshake flow (new)
+
+1. Server startup me activation gate ON ho sakta hai (`ECIMS_ACTIVATION_REQUIRED=1`).
+2. License key import endpoint: `POST /api/v1/license/activation/license-key`.
+3. Server `installation_id` + `request_code` issue karta hai.
+4. License Authority GUI ka `Server Activation` page `request_code` parse karta hai aur signed `verification_id` generate karta hai.
+5. Server `POST /api/v1/license/activation/verify` pe token verify karta hai (public key trust chain).
+6. Activation state persist hoti hai (`configs/license_activation_state.json`).
+7. Iske baad normal auth/admin/agent flows unlock hote hain.
+
+Key files:
+- `ecims2/server/app/licensing_core/activation.py`
+- `ecims2/server/app/api/routes.py`
+- `ecims2/server/app/main.py`
+- `license_authority_gui/la_gui/core/activation_service.py`
+- `license_authority_gui/la_gui/ui/pages/server_activation_page.py`
+
+## 10.6 Windows security update push flow (remote action extension)
+
+1. Admin Remote Actions page me `Policy Push` ke andar `Windows Security Update Push` mode select hota hai.
+2. Task `agent_tasks` pipeline se hi create hota hai, metadata me `operation=windows_update_push` jata hai.
+3. Agent `REMOTE_POLICY_PUSH` command parse karta hai:
+   - normal policy sync OR
+   - Windows update install attempt (COM-based Windows Update API via PowerShell)
+4. Ack status + error reason server ko wapas jata hai.
+5. Admin target details panel me per-client success/failure reason dekh sakta hai.
+
+Key files:
+- `ecims_admin/src/pages/ops/RemoteActionsPage.tsx`
+- `ecims2/agent/ecims_agent/device_control.py`
+- `ecims2/agent/ecims_agent/config.py`
 
 ---
 

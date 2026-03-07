@@ -64,7 +64,10 @@ const actionOptions: Array<{ value: RemoteActionKind; label: string; isHighRisk:
 const MIN_REASON_LENGTH = 5;
 const MIN_IDEMPOTENCY_LENGTH = 12;
 
-const actionLabel = (value: string) => {
+const actionLabel = (value: string, metadata?: Record<string, unknown>) => {
+  if (value === 'policy_push' && String(metadata?.operation || '').toLowerCase() === 'windows_update_push') {
+    return 'Windows Update Push';
+  }
   if (value === 'policy_push') return 'Policy Push';
   if (value === 'shutdown') return 'Shutdown';
   if (value === 'restart') return 'Restart';
@@ -95,6 +98,10 @@ export const RemoteActionsPage = () => {
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueBusy, setIssueBusy] = useState(false);
   const [issueAction, setIssueAction] = useState<RemoteActionKind>('restart');
+  const [issuePolicyMode, setIssuePolicyMode] = useState<'policy' | 'windows_update'>('policy');
+  const [issueKbArticleInput, setIssueKbArticleInput] = useState('');
+  const [issueIncludeOptional, setIssueIncludeOptional] = useState(false);
+  const [issueForceReboot, setIssueForceReboot] = useState(false);
   const [issueReasonCode, setIssueReasonCode] = useState<ReasonCode>('MAINTENANCE');
   const [issueReason, setIssueReason] = useState('');
   const [issueIdempotencyKey, setIssueIdempotencyKey] = useState(() => createIdempotencyKey('ra'));
@@ -144,6 +151,10 @@ export const RemoteActionsPage = () => {
 
   const resetIssueForm = () => {
     setIssueAction('restart');
+    setIssuePolicyMode('policy');
+    setIssueKbArticleInput('');
+    setIssueIncludeOptional(false);
+    setIssueForceReboot(false);
     setIssueReasonCode('MAINTENANCE');
     setIssueReason('');
     setIssueIdempotencyKey(createIdempotencyKey('ra'));
@@ -234,6 +245,21 @@ export const RemoteActionsPage = () => {
 
     setIssueBusy(true);
     try {
+      const metadata: Record<string, unknown> = {
+        source: 'admin-console',
+        page: 'ops/remote-actions',
+      };
+      if (issueAction === 'policy_push' && issuePolicyMode === 'windows_update') {
+        const kbArticleIds = issueKbArticleInput
+          .split(/[,\s]+/)
+          .map((item) => item.trim().toUpperCase())
+          .filter((item) => item.length > 0)
+          .map((item) => (item.startsWith('KB') ? item : `KB${item}`));
+        metadata.operation = 'windows_update_push';
+        metadata.kb_article_ids = kbArticleIds;
+        metadata.include_optional = issueIncludeOptional;
+        metadata.force_reboot = issueForceReboot;
+      }
       const payload: RemoteActionTaskCreatePayload = {
         action: issueAction,
         agent_ids: selectedAgentIds,
@@ -241,10 +267,7 @@ export const RemoteActionsPage = () => {
         reason_code: issueReasonCode,
         reason: issueReason.trim(),
         confirm_high_risk: issueConfirmHighRisk,
-        metadata: {
-          source: 'admin-console',
-          page: 'ops/remote-actions',
-        },
+        metadata,
       };
       const response = await CoreApi.createRemoteActionTask(payload);
       setIssueOpen(false);
@@ -296,7 +319,7 @@ export const RemoteActionsPage = () => {
     {
       key: 'action',
       header: 'Action',
-      render: (row) => <span className="text-sm font-medium">{actionLabel(row.action)}</span>,
+      render: (row) => <span className="text-sm font-medium">{actionLabel(row.action, row.metadata)}</span>,
     },
     {
       key: 'progress',
@@ -371,7 +394,7 @@ export const RemoteActionsPage = () => {
     <div className="space-y-6">
       <PageHeader
         title="Remote Actions"
-        subtitle="Issue controlled restart, shutdown, lockdown, and policy push tasks with idempotent queue safety."
+        subtitle="Issue controlled restart/shutdown/lockdown and policy push tasks, including Windows security update push."
         action={
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className="btn-secondary" onClick={() => void loadTasks()}>
@@ -468,6 +491,12 @@ export const RemoteActionsPage = () => {
               disabled={issueBusy}
               onChange={(event) => {
                 setIssueAction(event.target.value as RemoteActionKind);
+                if (event.target.value !== 'policy_push') {
+                  setIssuePolicyMode('policy');
+                  setIssueKbArticleInput('');
+                  setIssueIncludeOptional(false);
+                  setIssueForceReboot(false);
+                }
                 setIssueConfirmHighRisk(false);
                 if (issueErrors.highRisk) {
                   setIssueErrors((prev) => ({ ...prev, highRisk: undefined }));
@@ -494,6 +523,52 @@ export const RemoteActionsPage = () => {
               ))}
             </select>
           </div>
+
+          {issueAction === 'policy_push' && (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                Policy Push Mode
+              </p>
+              <select
+                className="input"
+                value={issuePolicyMode}
+                disabled={issueBusy}
+                onChange={(event) => setIssuePolicyMode(event.target.value as 'policy' | 'windows_update')}
+              >
+                <option value="policy">Configuration Sync</option>
+                <option value="windows_update">Windows Security Update Push</option>
+              </select>
+              {issuePolicyMode === 'windows_update' && (
+                <div className="space-y-2">
+                  <input
+                    className="input"
+                    value={issueKbArticleInput}
+                    disabled={issueBusy}
+                    onChange={(event) => setIssueKbArticleInput(event.target.value)}
+                    placeholder="Optional KB list: KB5034765, KB5035853"
+                  />
+                  <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={issueIncludeOptional}
+                      disabled={issueBusy}
+                      onChange={(event) => setIssueIncludeOptional(event.target.checked)}
+                    />
+                    Include non-security optional software updates
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={issueForceReboot}
+                      disabled={issueBusy}
+                      onChange={(event) => setIssueForceReboot(event.target.checked)}
+                    />
+                    Request reboot if update install requires restart
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <input
@@ -633,7 +708,7 @@ export const RemoteActionsPage = () => {
       <Modal
         open={Boolean(detailTask)}
         title={detailTask ? `Task #${detailTask.id} Targets` : 'Task Targets'}
-        description={detailTask ? `${actionLabel(detailTask.action)} - ${detailTask.status}` : undefined}
+        description={detailTask ? `${actionLabel(detailTask.action, detailTask.metadata)} - ${detailTask.status}` : undefined}
         cancelLabel="Close"
         onCancel={() => {
           setDetailTask(null);

@@ -62,6 +62,9 @@ def run(config_path: str, runtime_id_override: str | None = None, state_dir_over
         token_public_key_path=config.token_public_key_path,
         local_event_queue_retention_hours=config.local_event_queue_retention_hours,
         enforcement_grace_seconds=config.enforcement_grace_seconds,
+        allow_power_actions=config.allow_power_actions,
+        allow_windows_update_push=config.allow_windows_update_push,
+        windows_update_timeout_sec=config.windows_update_timeout_sec,
     )
     adapter.reconcile_state(config.device_enforcement_mode)
 

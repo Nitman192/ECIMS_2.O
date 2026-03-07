@@ -214,6 +214,22 @@ Invalid/expired license pe selected operations block ho jati hain, including reg
 - `ecims2/server/app/api/deps.py`
 - `ecims2/server/tests/test_phase4_license.py`
 
+### Q13A. Activation handshake flow kya enforce karta hai?
+
+**30-second answer:**
+Server activation-required mode me license import + installation request + signed verification ID submit ke bina non-activation APIs locked rehti hain.
+
+**Defense Points:**
+- Flow: license key -> installation ID/request code -> verification ID.
+- Activation state machine fingerprint + license ID se bind hoti hai.
+- Activation app client registry maintain karta hai aur 7-day expiry alerts dikha sakta hai.
+
+**Evidence in Repo:**
+- `ecims2/server/app/licensing_core/activation.py`
+- `ecims2/server/app/api/routes.py`
+- `license_authority_gui/la_gui/core/activation_service.py`
+- `license_authority_gui/la_gui/ui/pages/server_activation_page.py`
+
 ### Q14. Signed policy verification kaha hota hai?
 
 **30-second answer:**
@@ -356,11 +372,17 @@ Patch package upload hota hai, target machine download karke local apply karta h
 ### Q25. Auto patch push kyun nahi?
 
 **30-second answer:**
-Sensitive/isolated environments me human-in-the-loop control blast radius reduce karta hai.
+Binary package rollout intentionally controlled/manual hai, lekin remote-actions path se Windows security update push mode available hai with per-client feedback.
 
 **Defense Points:**
-- Offline/LAN governed environments ke liye safer model.
-- Auditability + rollback readiness enhanced.
+- Offline/LAN governed environments ke liye human approval model still preserved.
+- Windows update push result/failure reason target-level pe visible.
+- Backup-linked patch workflow and remote-action workflow dono coexist karte hain.
+
+**Evidence in Repo:**
+- `ecims_admin/src/pages/ops/RemoteActionsPage.tsx`
+- `ecims2/agent/ecims_agent/device_control.py`
+- `ecims2/server/app/services/remote_action_task_service.py`
 
 ### Q26. Rollback capability real hai ya theoretical?
 

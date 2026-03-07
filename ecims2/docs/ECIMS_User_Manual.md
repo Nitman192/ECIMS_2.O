@@ -59,6 +59,27 @@ Set-Location X:\ECIMS_2.O-main\ecims2\dist\windows_executables\client
 3. Start server package with validated artifacts and monitor `/health`, `/api/v1/security/status`, and audit logs.
 4. Roll out clients in canary waves before full fleet rollout.
 
+### Activation Flow (EXE licensing handshake)
+
+When packaged server is started with activation enforcement, use this sequence:
+
+1. Start server EXE.
+2. Submit license key artifact to server:
+   - `POST /api/v1/license/activation/license-key`
+3. Server returns:
+   - `installation_id`
+   - `request_code`
+4. Open Activation App (`ECIMS_License_Authority.exe`) -> Server Activation page.
+5. Paste `request_code` and generate `verification_id`.
+6. Submit verification on server:
+   - `POST /api/v1/license/activation/verify`
+7. Confirm activation status:
+   - `GET /api/v1/license/activation/status`
+
+Notes:
+- Client agent/app me alag license key enter karna required nahi hai.
+- License + activation server-side trust gate hai; clients register after server activation.
+
 ---
 
 ## What ECIMS Solves and Where It Fits
@@ -1115,6 +1136,36 @@ The following index maps major operational endpoints.
 - `POST /api/v1/ai/score/run`
 - `GET /api/v1/ai/scores`
 - `GET /api/v1/ai/models`
+
+## License activation endpoints
+
+- `GET /api/v1/license/activation/status`
+- `POST /api/v1/license/activation/license-key`
+- `POST /api/v1/license/activation/request`
+- `POST /api/v1/license/activation/verify`
+
+## Windows security update push (policy-push mode)
+
+- Go to Admin Console -> Remote Actions.
+- Select action `Policy Push`.
+- Choose mode `Windows Security Update Push`.
+- Optional: provide KB article IDs, optional update include flag, reboot preference.
+- Dispatch task and monitor:
+  - `GET /api/v1/admin/ops/remote-actions/tasks`
+  - `GET /api/v1/admin/ops/remote-actions/tasks/{task_id}/targets`
+
+Failure reason visibility:
+- Per-endpoint failure reason appears in target `error` field (`WINDOWS_ONLY`, `WINDOWS_UPDATE_TIMEOUT`, `WINDOWS_UPDATE_FAILED:*`, etc.).
+
+## Isolation Forest model: train vs detect behavior
+
+- Model is **not auto-trained at first boot**. You must run `POST /api/v1/ai/train`.
+- Detection/scoring starts when you run `POST /api/v1/ai/score/run` using a trained `model_id`.
+- `GET /api/v1/ai/models` shows trained models; `GET /api/v1/ai/scores` shows per-agent score outputs.
+- Recommended ops pattern:
+  1. Train on known-good baseline window.
+  2. Run periodic score jobs.
+  3. Review top-risk agents and correlate with alerts/evidence modules.
 
 ---
 

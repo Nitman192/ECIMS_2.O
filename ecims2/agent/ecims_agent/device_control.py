@@ -4,6 +4,8 @@ import base64
 import hashlib
 import json
 import logging
+import platform
+import subprocess
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -72,6 +74,9 @@ class DeviceControlManager:
         token_public_key_path: str,
         local_event_queue_retention_hours: int,
         enforcement_grace_seconds: int = 0,
+        allow_power_actions: bool = False,
+        allow_windows_update_push: bool = True,
+        windows_update_timeout_sec: int = 1800,
     ):
         self.enforcement_mode = enforcement_mode
         self.failsafe_offline_minutes = failsafe_offline_minutes
@@ -80,6 +85,9 @@ class DeviceControlManager:
         self.last_server_contact_utc = datetime.now(timezone.utc)
         self.temp_allow_expiry: dict[str, datetime] = {}
         self.enforcement_grace_seconds = enforcement_grace_seconds
+        self.allow_power_actions = bool(allow_power_actions)
+        self.allow_windows_update_push = bool(allow_windows_update_push)
+        self.windows_update_timeout_sec = max(60, int(windows_update_timeout_sec))
         self.policy_hash = ""
 
     def mark_server_contact(self) -> None:
@@ -129,6 +137,9 @@ class DeviceControlManager:
             cmd_id = int(cmd["id"])
             ctype = cmd.get("type", "")
             payload = cmd.get("payload", {})
+            metadata = payload.get("metadata") if isinstance(payload, dict) else {}
+            if not isinstance(metadata, dict):
+                metadata = {}
             device_id = payload.get("device_id")
             device = known_devices.get(device_id) if device_id else None
             try:
@@ -184,10 +195,196 @@ class DeviceControlManager:
                     if device_id:
                         self.temp_allow_expiry[device_id] = datetime.now(timezone.utc) + timedelta(minutes=duration)
                     client.ack_command(agent_id, token, cmd_id, applied=True)
+                elif ctype == "REMOTE_POLICY_PUSH":
+                    operation = str(metadata.get("operation", "")).strip().lower()
+                    if operation == "windows_update_push":
+                        ok, err, summary = self._run_windows_update_push(metadata)
+                        self._submit_or_queue(
+                            client,
+                            agent_id,
+                            token,
+                            [
+                                self._ev(
+                                    datetime.now(timezone.utc).isoformat(),
+                                    "agent.windows_update.push.result",
+                                    f"agent://{agent_id}",
+                                    {
+                                        "event_id": str(uuid.uuid4()),
+                                        "command_id": cmd_id,
+                                        "success": ok,
+                                        "error": err,
+                                        "summary": summary,
+                                    },
+                                )
+                            ],
+                        )
+                        client.ack_command(agent_id, token, cmd_id, applied=ok, error=err)
+                    else:
+                        client.ack_command(agent_id, token, cmd_id, applied=True)
+                elif ctype == "REMOTE_LOCKDOWN":
+                    self.enforcement_mode = "enforce"
+                    adapter.reconcile_state(self.enforcement_mode)
+                    client.ack_command(agent_id, token, cmd_id, applied=True)
+                elif ctype == "REMOTE_RESTART":
+                    self._execute_power_action("restart")
+                    client.ack_command(agent_id, token, cmd_id, applied=True)
+                elif ctype == "REMOTE_SHUTDOWN":
+                    self._execute_power_action("shutdown")
+                    client.ack_command(agent_id, token, cmd_id, applied=True)
                 else:
                     client.ack_command(agent_id, token, cmd_id, applied=False, error="UNKNOWN_COMMAND")
             except Exception as exc:  # noqa: BLE001
                 client.ack_command(agent_id, token, cmd_id, applied=False, error=str(exc))
+
+    def _execute_power_action(self, action: str) -> None:
+        if not self.allow_power_actions:
+            raise RuntimeError("POWER_ACTIONS_DISABLED")
+        if platform.system().lower() != "windows":
+            raise RuntimeError("POWER_ACTIONS_WINDOWS_ONLY")
+        if action == "restart":
+            subprocess.run(["shutdown", "/r", "/t", "0"], check=True, capture_output=True, text=True)
+            return
+        if action == "shutdown":
+            subprocess.run(["shutdown", "/s", "/t", "0"], check=True, capture_output=True, text=True)
+            return
+        raise RuntimeError("POWER_ACTION_INVALID")
+
+    def _run_windows_update_push(self, metadata: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any]]:
+        if not self.allow_windows_update_push:
+            return False, "WINDOWS_UPDATE_PUSH_DISABLED", {"success": False, "reason": "disabled"}
+        if platform.system().lower() != "windows":
+            return False, "WINDOWS_ONLY", {"success": False, "reason": "non_windows"}
+
+        kb_ids_raw = metadata.get("kb_article_ids", [])
+        kb_ids: list[str] = []
+        if isinstance(kb_ids_raw, list):
+            for item in kb_ids_raw:
+                value = str(item or "").strip().upper()
+                if not value:
+                    continue
+                kb_ids.append(value if value.startswith("KB") else f"KB{value}")
+        include_optional = bool(metadata.get("include_optional", False))
+
+        script = rf"""
+$ErrorActionPreference = "Stop"
+$kbFilter = @({",".join([f'"{item}"' for item in kb_ids])})
+$includeOptional = {"$true" if include_optional else "$false"}
+$session = New-Object -ComObject Microsoft.Update.Session
+$searcher = $session.CreateUpdateSearcher()
+$searchResult = $searcher.Search("IsInstalled=0 and Type='Software' and IsHidden=0")
+$candidates = @()
+for ($i = 0; $i -lt $searchResult.Updates.Count; $i++) {{
+  $candidates += $searchResult.Updates.Item($i)
+}}
+$selected = New-Object -ComObject Microsoft.Update.UpdateColl
+foreach ($update in $candidates) {{
+  $kbArticles = @($update.KBArticleIDs | ForEach-Object {{ "KB$($_)" }})
+  $categoryNames = @($update.Categories | ForEach-Object {{ $_.Name }})
+  $isSecurity = $false
+  foreach ($cat in $categoryNames) {{
+    if ($cat -match "Security") {{
+      $isSecurity = $true
+      break
+    }}
+  }}
+  if ($kbFilter.Count -gt 0) {{
+    $matched = $false
+    foreach ($kb in $kbArticles) {{
+      if ($kbFilter -contains $kb) {{
+        $matched = $true
+        break
+      }}
+    }}
+    if (-not $matched) {{ continue }}
+  }} elseif (-not $includeOptional -and -not $isSecurity) {{
+    continue
+  }}
+  [void]$selected.Add($update)
+}}
+if ($selected.Count -eq 0) {{
+  $result = @{{
+    success = $true
+    installed_count = 0
+    failed_count = 0
+    reboot_required = $false
+    result = "no_updates_selected"
+  }}
+  $result | ConvertTo-Json -Compress -Depth 5
+  exit 0
+}}
+$downloader = $session.CreateUpdateDownloader()
+$downloader.Updates = $selected
+[void]$downloader.Download()
+$installer = $session.CreateUpdateInstaller()
+$installer.Updates = $selected
+$installResult = $installer.Install()
+$items = @()
+$failCount = 0
+$installCount = 0
+for ($i = 0; $i -lt $selected.Count; $i++) {{
+  $item = $selected.Item($i)
+  $itemRes = $installResult.GetUpdateResult($i)
+  $rc = [int]$itemRes.ResultCode
+  if ($rc -eq 2 -or $rc -eq 3) {{
+    $installCount += 1
+  }} else {{
+    $failCount += 1
+  }}
+  $items += @{{
+    title = $item.Title
+    kb_article_ids = @($item.KBArticleIDs | ForEach-Object {{ "KB$($_)" }})
+    result_code = $rc
+    hresult = [int64]$itemRes.HResult
+    reboot_required = [bool]$item.RebootRequired
+  }}
+}}
+$payload = @{{
+  success = ($failCount -eq 0)
+  installed_count = $installCount
+  failed_count = $failCount
+  reboot_required = [bool]$installResult.RebootRequired
+  result_code = [int]$installResult.ResultCode
+  items = $items
+}}
+$payload | ConvertTo-Json -Compress -Depth 6
+"""
+        try:
+            completed = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                capture_output=True,
+                text=True,
+                timeout=self.windows_update_timeout_sec,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return False, "WINDOWS_UPDATE_TIMEOUT", {"success": False, "reason": "timeout"}
+        except Exception as exc:  # noqa: BLE001
+            return False, f"WINDOWS_UPDATE_EXEC_ERROR:{exc}", {"success": False, "reason": str(exc)}
+
+        output = (completed.stdout or "").strip()
+        err_output = (completed.stderr or "").strip()
+        if completed.returncode != 0:
+            reason = f"WINDOWS_UPDATE_COMMAND_FAILED:{completed.returncode}"
+            if err_output:
+                reason = f"{reason}:{err_output[:200]}"
+            return False, reason, {"success": False, "stdout": output[:300], "stderr": err_output[:300]}
+
+        try:
+            summary = json.loads(output) if output else {"success": True, "result": "no_output"}
+        except Exception:
+            summary = {"success": False, "result": "invalid_json", "raw": output[:400]}
+            return False, "WINDOWS_UPDATE_RESULT_PARSE_ERROR", summary
+
+        requested_force_reboot = bool(metadata.get("force_reboot", False))
+        reboot_required = bool(summary.get("reboot_required", False))
+        if requested_force_reboot and reboot_required and not self.allow_power_actions:
+            summary["reboot_note"] = "reboot_required_but_power_actions_disabled"
+
+        success = bool(summary.get("success", False))
+        if success:
+            return True, None, summary
+        failed_count = int(summary.get("failed_count", 0) or 0)
+        return False, f"WINDOWS_UPDATE_FAILED:{failed_count}", summary
 
     def maybe_block_device(self, client: ApiClient, agent_id: int, token: str, adapter, device: USBDevice) -> None:
         mode = self.effective_mode()
