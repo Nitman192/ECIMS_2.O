@@ -139,6 +139,37 @@ class TestPhase18ActivationFlow(unittest.TestCase):
                 login = client.post("/api/v1/auth/login", json={"username": "admin", "password": "admin123"})
                 self.assertEqual(login.status_code, 200, login.text)
 
+    def test_activation_required_keeps_api_locked_but_allows_frontend_routes(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            frontend_dir = tmp / "admin_frontend"
+            assets_dir = frontend_dir / "assets"
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            (frontend_dir / "index.html").write_text("<html><body>ECIMS Admin</body></html>", encoding="utf-8")
+            (assets_dir / "app.js").write_text("console.log('ok');", encoding="utf-8")
+
+            os.environ["ECIMS_DB_PATH"] = str(tmp / "db.sqlite")
+            os.environ["ECIMS_STATE_DIR"] = str(tmp / "state")
+            os.environ["ECIMS_ACTIVATION_REQUIRED"] = "true"
+            os.environ["ECIMS_MTLS_REQUIRED"] = "false"
+            os.environ["ECIMS_MTLS_ENABLED"] = "false"
+            os.environ["ECIMS_ADMIN_CONSOLE_DIST_PATH"] = str(frontend_dir)
+
+            with self._load_client() as client:
+                blocked = client.get("/api/v1/agents")
+                self.assertEqual(blocked.status_code, 423, blocked.text)
+
+                root = client.get("/")
+                self.assertEqual(root.status_code, 200, root.text)
+                self.assertIn("ECIMS Admin", root.text)
+
+                spa = client.get("/ops/remote-actions")
+                self.assertEqual(spa.status_code, 200, spa.text)
+                self.assertIn("ECIMS Admin", spa.text)
+
+                asset = client.get("/assets/app.js")
+                self.assertEqual(asset.status_code, 200, asset.text)
+
 
 if __name__ == "__main__":
     unittest.main()

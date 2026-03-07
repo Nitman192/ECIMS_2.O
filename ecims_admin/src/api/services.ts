@@ -43,6 +43,10 @@ import type {
   EnrollmentTokenListResponse,
   EnrollmentTokenRevokePayload,
   LoginResponse,
+  LicenseActivationLicenseKeyResponse,
+  LicenseActivationRequestResponse,
+  LicenseActivationStatus,
+  LicenseActivationVerifyResponse,
   MaintenanceScheduleConflictResponse,
   MaintenanceScheduleCreatePayload,
   MaintenanceScheduleCreateResponse,
@@ -85,6 +89,16 @@ export const AuthApi = {
   me: () => api.get<User>('/auth/me'),
   resetMyPassword: (payload: { current_password: string; new_password: string }) =>
     api.post('/auth/password/reset', payload),
+};
+
+export const ActivationApi = {
+  status: () => api.get<LicenseActivationStatus>('/license/activation/status'),
+  importLicenseKey: (licenseKey: string) =>
+    api.post<LicenseActivationLicenseKeyResponse>('/license/activation/license-key', { license_key: licenseKey }),
+  issueRequest: (forceNew = true) =>
+    api.post<LicenseActivationRequestResponse>('/license/activation/request', { force_new: forceNew }),
+  verify: (verificationId: string) =>
+    api.post<LicenseActivationVerifyResponse>('/license/activation/verify', { verification_id: verificationId }),
 };
 
 export const CoreApi = {

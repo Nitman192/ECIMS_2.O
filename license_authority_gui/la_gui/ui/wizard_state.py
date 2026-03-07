@@ -42,16 +42,27 @@ def build_snapshot(storage_paths: StoragePaths, unlocked: bool, offline_ack: boo
 
 
 def evaluate_steps(snapshot: WizardSnapshot, settings: AppSettings) -> list[StepStatus]:
-    return [
+    steps = [
         StepStatus("offline", "Offline acknowledgement", "OK" if (not settings.require_offline_ack or snapshot.offline_ack) else "Missing", "config/offline_ack.json", True),
         StepStatus("root", "Root Key Generate/Unlock", "OK" if snapshot.unlocked else ("Locked" if snapshot.root_key_present else "Missing"), "keys/la_root_key_encrypted.pem", True),
         StepStatus("license", "Create License", "OK" if snapshot.license_present else "Needs Input", "exports/license_*.json", snapshot.unlocked),
-        StepStatus("mtls_ca", "Generate mTLS CA (optional)", "OK" if snapshot.mtls_ca_present else "Missing", "keys/mtls_ca_cert.pem", True),
-        StepStatus("mtls_sign", "Sign Agent CSR (optional)", "Needs Input", "exports/agent_cert_*.pem", snapshot.mtls_ca_present),
-        StepStatus("data_key", "Generate/Rotate Data Key (optional)", "OK" if snapshot.data_key_present else "Missing", "exports/data_key_bundle.json", True),
-        StepStatus("bundle", "Export Activation Bundle", "Needs Input", "exports/activation_bundle_*.zip", snapshot.license_present and snapshot.root_public_present),
-        StepStatus("audit", "Verify Audit Chain", "Needs Input", "logs/audit_log.jsonl", True),
     ]
+    if settings.show_advanced_mode:
+        steps.extend(
+            [
+                StepStatus("mtls_ca", "Generate mTLS CA (optional)", "OK" if snapshot.mtls_ca_present else "Missing", "keys/mtls_ca_cert.pem", True),
+                StepStatus("mtls_sign", "Sign Agent CSR (optional)", "Needs Input", "exports/agent_cert_*.pem", snapshot.mtls_ca_present),
+                StepStatus("data_key", "Generate/Rotate Data Key (optional)", "OK" if snapshot.data_key_present else "Missing", "exports/data_key_bundle.json", True),
+            ]
+        )
+
+    steps.extend(
+        [
+            StepStatus("bundle", "Export Activation Bundle", "Needs Input", "exports/activation_bundle_*.zip", snapshot.license_present and snapshot.root_public_present),
+            StepStatus("audit", "Verify Audit Chain", "Needs Input", "logs/audit_log.jsonl", True),
+        ]
+    )
+    return steps
 
 
 def _latest(directory: Path, pattern: str) -> Path | None:

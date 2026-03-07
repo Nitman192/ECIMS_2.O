@@ -44,6 +44,28 @@ Data flow summary:
 4. Ops actions (remote actions, schedules, playbooks, patch workflow, backup/restore) DB + audit me persist hote hain.
 5. Patch packages server vault me store hote hain; deployment mostly offline/manual controlled process hai.
 
+## 3.1 Current Capability Snapshot (Kya / Kaise / Kab)
+
+Baseline repo state (`2.0.0-rc1`, snapshot date: March 7, 2026):
+
+| Capability | Kya karta hai | Kaise run hota hai | Kab use karo | Primary ownership files |
+| --- | --- | --- | --- | --- |
+| Server activation handshake | Unactivated server ko protected state me rakhta hai | `license-key` import -> request code -> authority verification -> unlock | New customer server issue/renew | `server/app/licensing_core/activation.py`, `server/app/main.py`, `server/app/api/routes.py`, `license_authority_gui/la_gui/core/activation_service.py` |
+| Agent onboarding + runtime telemetry | Endpoint ko register/enroll karke heartbeat/events maintain karta hai | Agent main loop + API client + local state queue | Day-1 install, continuous ops | `agent/ecims_agent/main.py`, `api_client.py`, `storage.py`, `offline_store.py` |
+| Integrity/alert pipeline | Drift/anomaly events ko alert/audit stream me convert karta hai | Scanner -> event service -> alert service | Continuous monitoring | `agent/scanner.py`, `server/app/services/event_service.py`, `alert_service.py` |
+| Remote action command plane | Fleet-level endpoint commands dispatch + tracking | `agent_tasks` pipeline + target ack/error | Incident response and control actions | `server/app/services/remote_action_task_service.py`, `agent/ecims_agent/device_control.py`, `ecims_admin/src/pages/ops/RemoteActionsPage.tsx` |
+| Windows security update push | Windows endpoints me update install trigger and feedback | Remote Actions policy push metadata `operation=windows_update_push` | Coordinated patch drives in LAN | `agent/ecims_agent/device_control.py`, `agent/ecims_agent/config.py`, `ecims_admin/src/pages/ops/RemoteActionsPage.tsx` |
+| Patch package lifecycle | Patch artifacts store/index/apply/rollback tracking | Upload/download/apply endpoints + backup/audit trail | Controlled change deployment | `server/app/services/patch_update_service.py`, `state_backup_service.py`, `api/routes.py` |
+| Device control safety model | USB/block control + allow-token + kill-switch model | Policy + token + agent enforcement | High-control endpoint environments | `device_policy_service.py`, `device_allow_token_service.py`, `agent/ecims_agent/device_control.py` |
+| AI anomaly scoring | Isolation Forest/OCSVM model train + score jobs | Manual train endpoint then score-run endpoint | Baseline ke baad risk triage | `server/app/ai/service.py`, `server/app/ai/model.py`, `api/routes.py` |
+| Governance modules | Roles, approvals, evidence chain, audit traceability | Admin APIs + UI modules + audit service | Compliance and controlled ops | `rbac_service.py`, `change_control_service.py`, `evidence_vault_service.py`, `audit_service.py` |
+
+Current boundaries (important for defense/handover):
+- Client app par alag se license key dalna required nahi hai; trust gate server activation layer par hai.
+- AI auto-train by default nahi hota; operator-triggered train + score cycle chahiye.
+- Windows update push only Windows targets par supported hai; non-Windows/failure ka reason explicit return hota hai.
+- Patch rollout intentionally controlled/auditable model me hai; direct uncontrolled binary auto-push design ka part nahi hai.
+
 ---
 
 ## 4. Repository Ownership Map (Top Level)

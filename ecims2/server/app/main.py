@@ -119,6 +119,20 @@ _ACTIVATION_ALLOWED_PATHS = {
 }
 
 
+def _is_activation_exempt_frontend_path(*, path: str, method: str) -> bool:
+    if method.upper() not in {"GET", "HEAD"}:
+        return False
+
+    normalized = path.rstrip("/") or "/"
+    if normalized == "/":
+        return True
+    if normalized == "/health" or normalized.startswith(settings.api_prefix):
+        return False
+    if normalized.startswith("/assets"):
+        return True
+    return bool(_admin_console_index and _admin_console_index.exists())
+
+
 def _resolve_path(path_str: str) -> str:
     candidate = Path(path_str)
     if candidate.is_absolute():
@@ -292,7 +306,7 @@ async def activation_gate(request: Request, call_next):
         return await call_next(request)
     if any(path.startswith(prefix) for prefix in _ACTIVATION_ALLOWED_PATH_PREFIXES):
         return await call_next(request)
-    if path.startswith("/assets"):
+    if _is_activation_exempt_frontend_path(path=path, method=request.method):
         return await call_next(request)
 
     license_state = get_license_state()

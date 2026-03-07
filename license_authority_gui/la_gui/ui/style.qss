@@ -1,122 +1,217 @@
-/* ECIMS License Authority - Phase 6: World's Next-Level UI */
+/* ECIMS License Authority - Professional desktop theme */
 
-QWidget[theme="default"] {
-    /* Main Background: Ultra-modern Deepest Navy-Teal (Almost Black, not quite) */
-    background: #020b12; 
-    /* Primary Text: Soft, futuristic Off-White for great readability */
-    color: #f1f7fb; 
-    font-family: 'Segoe UI Variable', sans-serif; /* Cleaner, professional font */
+QWidget {
+    background: #0d141d;
+    color: #e6edf5;
+    font-family: 'Segoe UI Variable', 'Segoe UI', sans-serif;
+    font-size: 13px;
+}
+
+QMainWindow {
+    background: #0d141d;
+}
+
+QMenuBar {
+    background: #0d141d;
+    color: #dbe4ee;
+    border: none;
+}
+
+QMenuBar::item {
+    padding: 5px 10px;
+    background: transparent;
+}
+
+QMenuBar::item:selected {
+    background: #1a2330;
+    border-radius: 6px;
+}
+
+QMenu {
+    background: #111a25;
+    color: #e6edf5;
+    border: 1px solid #273548;
+}
+
+QMenu::item:selected {
+    background: #1d2d42;
+}
+
+QFrame#card {
+    background: #111b27;
+    border: 1px solid #263548;
+    border-radius: 12px;
+}
+
+QLabel[role="sectionHeader"] {
+    font-size: 21px;
+    font-weight: 700;
+    color: #f3f8ff;
+    padding-bottom: 2px;
+}
+
+QLabel[role="muted"] {
+    color: #9fb0c4;
+}
+
+QLabel[role="chip"] {
+    background: #1a2533;
+    border: 1px solid #2e4158;
+    border-radius: 9px;
+    padding: 4px 10px;
+    color: #dce7f2;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QLabel[role="tableHeader"] {
+    color: #9fb0c4;
+    font-weight: 700;
     font-size: 12px;
 }
 
-QMainWindow { background: #020b12; }
-
-/* Menu Bar: Discrete and clean, almost invisible when not focused */
-QMenuBar { background: #020b12; color: #f1f7fb; border: none; }
-QMenuBar::item:selected { background: #132431; }
-QMenu { background: #020b12; color: #f1f7fb; border: 1px solid #1a334a; }
-QMenu::item:selected { background: #1a334a; }
-
-/* Card/Frame: Removed visible border, added modern 'depth' using subtle background variation */
-QFrame#card {
-    background: #06121a; 
-    border-radius: 12px; /* Smoother, larger radius */
-    padding: 16px; /* More breathing room */
+QLabel[status="ok"] {
+    color: #45c17a;
+    font-weight: 700;
 }
 
-/* Section Headers: Bold, professional, and clearly defined */
-QLabel[role="sectionHeader"] {
-    font-size: 35px;
-    font-weight: 800; /* Extra bold */
-    color: #f1f7fb; /* Same text color for minimalism */
-    padding-bottom: 6px;
-    text-transform: uppercase; /* Cleaner look */
-    letter-spacing: 1px; /* Wide letters for premium feel */
+QLabel[status="warn"] {
+    color: #f2b34a;
+    font-weight: 700;
 }
 
-/* List Widget: Integrated seamlessly, almost invisible border */
+QLabel[status="pending"] {
+    color: #88a0b8;
+    font-weight: 700;
+}
+
 QListWidget {
-    background: transparent; /* Seamless integration */
-    border: none;
-    padding: 8px;
-}
-QListWidget::item { 
-    padding: 10px 14px; /* More spacing */
-    border-radius: 8px; 
-    color: #e2e8f0; 
-}
-QListWidget::item:hover { background: #132431; }
-/* Selection: Muted Teal with dynamic glow */
-QListWidget::item:selected { background: #0f646c; color: #f4f4f4; font-weight: 600; }
-
-/* Input Fields: Super clean, single border line for modern feel */
-QLineEdit, QTextEdit, QSpinBox, QDateEdit {
-    background: #06121a;
-    border: 1px solid #1a334a;
-    border-radius: 6px;
-    padding: 8px;
-    color: #ffffff;
-}
-/* Focus: Glowing Aqua border with a subtle neon shadow effect (simulated) */
-QLineEdit:focus, QTextEdit:focus, QSpinBox:focus, QDateEdit:focus { 
-    border: 1px solid #2df6fd; /* Neon Aqua */
-    border-radius: 6px;
+    background: #111b27;
+    border: 1px solid #263548;
+    border-radius: 12px;
+    padding: 10px;
+    outline: none;
 }
 
-/* QPushButton: Standard is now ghost/outline style for minimalism */
-QPushButton {
+QListWidget::item {
+    padding: 10px 10px;
     border-radius: 8px;
-    padding: 10px 16px;
-    border: 1px solid #1a334a;
-    background: #06121a;
-    color: #ffffff;
-    font-weight: 600;
+    color: #dce6f2;
 }
-QPushButton:hover { background: #132431; border: 1px solid #1a334a; }
-QPushButton:pressed { background: #0e1e2c; }
 
-/* Primary Button: Bold, futuristic gradient for main action */
-QPushButton[variant="primary"] {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0f646c, stop:1 #024b52); /* Deep Teal Gradient */
-    border: 1px solid #0f646c;
+QListWidget::item:hover {
+    background: #1a2736;
+}
+
+QListWidget::item:selected {
+    background: #1f3652;
     color: #ffffff;
     font-weight: 700;
 }
-QPushButton[variant="primary"]:hover { background: #024b52; }
 
-/* Danger Button: Subtle Red Outline, not filled */
-QPushButton[variant="danger"] {
-    background: transparent;
-    border: 1px solid #b42318;
-    color: #b42318;
+QLineEdit,
+QTextEdit,
+QPlainTextEdit,
+QSpinBox,
+QDateEdit,
+QComboBox {
+    background: #0f1925;
+    border: 1px solid #2a3a50;
+    border-radius: 8px;
+    padding: 8px;
+    color: #edf4fc;
+    selection-background-color: #2b5b8a;
+}
+
+QLineEdit:focus,
+QTextEdit:focus,
+QPlainTextEdit:focus,
+QSpinBox:focus,
+QDateEdit:focus,
+QComboBox:focus {
+    border: 1px solid #4c8dcc;
+}
+
+QPushButton {
+    background: #152232;
+    color: #e7eef7;
+    border: 1px solid #2d4158;
+    border-radius: 8px;
+    padding: 8px 14px;
     font-weight: 600;
 }
-QPushButton[variant="danger"]:hover { background: #b42318; color: #ffffff; }
+
+QPushButton:hover {
+    background: #1b2d42;
+}
+
+QPushButton:pressed {
+    background: #132131;
+}
+
+QPushButton[variant="primary"] {
+    background: #2c6db0;
+    border: 1px solid #3a83ce;
+    color: #ffffff;
+}
+
+QPushButton[variant="primary"]:hover {
+    background: #347bc6;
+}
+
+QPushButton[variant="secondary"] {
+    background: #192635;
+    border: 1px solid #34495f;
+    color: #dde7f2;
+}
+
+QPushButton[variant="secondary"]:hover {
+    background: #213447;
+}
+
+QPushButton[variant="danger"] {
+    background: #3a1b24;
+    border: 1px solid #b54f63;
+    color: #ffdce3;
+}
+
+QPushButton[variant="danger"]:hover {
+    background: #4a212e;
+}
 
 QPushButton:disabled {
-    background: #111b2e;
-    color: #4c566a;
-    border-color: #1a334a;
+    background: #141a23;
+    border-color: #253243;
+    color: #64778d;
 }
 
-/* Status Bar: Clean and seamlessly integrated, minimal border */
-QStatusBar {
-    background: #020b12;
-    border-top: 1px solid #132431;
-    color: #8c97a1;
+QCheckBox {
+    spacing: 6px;
 }
 
-/* Progress Bar: Slimmer, gradient chunk for sleek look */
 QProgressBar {
-    border: 1px solid #1a334a;
+    border: 1px solid #2b3c52;
     border-radius: 8px;
-    background: #06121a;
+    background: #101a26;
     text-align: center;
-    color: transparent; /* No text, very clean */
-    height: 10px; /* Thinner for modern feel */
+    color: #dbe7f3;
+    min-height: 18px;
 }
-/* Chunk: Dual Neon gradient (Teal to Blue) */
-QProgressBar::chunk { 
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #11d4e0, stop:1 #1d74fb); /* Aqua to Blue gradient */
-    border-radius: 8px; 
+
+QProgressBar::chunk {
+    background: #2f76bd;
+    border-radius: 7px;
+}
+
+QStatusBar {
+    background: #0d141d;
+    color: #9fb0c4;
+    border-top: 1px solid #233244;
+}
+
+QToolTip {
+    background: #0f1925;
+    color: #f1f6fc;
+    border: 1px solid #325173;
+    padding: 6px;
 }

@@ -23,7 +23,13 @@ class DashboardPage(QWidget):
         self.status_callback = status_callback
 
         self._status_label = QLabel()
+        self._status_label.setProperty("role", "muted")
+        self._status_label.setWordWrap(True)
+
         self._paths_label = QLabel()
+        self._paths_label.setProperty("role", "muted")
+        self._paths_label.setWordWrap(True)
+
         self._recent_actions = QTextEdit()
         self._recent_actions.setReadOnly(True)
 
@@ -41,7 +47,15 @@ class DashboardPage(QWidget):
         card_layout.setContentsMargins(12, 12, 12, 12)
         card_layout.setSpacing(10)
         card_layout.addWidget(section_header("Dashboard"))
+
+        intro = QLabel("Use this page for a quick system check and one-click activation bundle export.")
+        intro.setProperty("role", "muted")
+        intro.setWordWrap(True)
+        card_layout.addWidget(intro)
+
+        card_layout.addWidget(QLabel("System Snapshot"))
         card_layout.addWidget(self._status_label)
+        card_layout.addWidget(QLabel("Storage Locations"))
         card_layout.addWidget(self._paths_label)
         card_layout.addWidget(export_bundle_btn)
         card_layout.addWidget(QLabel("Recent Audit Actions (last 5)"))
@@ -51,17 +65,22 @@ class DashboardPage(QWidget):
     def refresh(self) -> None:
         """Refresh status and recent event widgets."""
         root_exists = self.state.root_private_key_path.exists()
-        self._status_label.setText(
-            f"Root key file exists: {'Yes' if root_exists else 'No'} | "
-            f"Session unlocked: {'Yes' if self.state.is_unlocked else 'No'}"
-        )
+
+        lines = [
+            f"Root key file: {'Available' if root_exists else 'Missing'}",
+            f"Session key state: {'Unlocked' if self.state.is_unlocked else 'Locked'}",
+            f"Role: {self.state.current_role}",
+            f"Mode: {'Advanced' if self.state.settings.show_advanced_mode else 'Standard'}",
+        ]
+        self._status_label.setText("\n".join(lines))
+
         self._paths_label.setText(
             "\n".join(
                 [
-                    f"keys: {self.state.storage_paths.keys_dir}",
-                    f"logs: {self.state.storage_paths.logs_dir}",
+                    f"keys   : {self.state.storage_paths.keys_dir}",
+                    f"logs   : {self.state.storage_paths.logs_dir}",
                     f"exports: {self.state.storage_paths.exports_dir}",
-                    f"config: {self.state.storage_paths.config_dir}",
+                    f"config : {self.state.storage_paths.config_dir}",
                 ]
             )
         )

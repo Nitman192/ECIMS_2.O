@@ -21,6 +21,32 @@ If you are new to ECIMS, start with:
 
 ---
 
+## Current Capability Snapshot (What, How, When)
+
+As of repo baseline `2.0.0-rc1` (updated on March 7, 2026), ECIMS currently supports:
+
+| Capability | What it does | How it is executed | When to use |
+| --- | --- | --- | --- |
+| Server activation-gated startup | Keeps server APIs locked until trusted activation is completed | `license-key` import -> server issues `installation_id/request_code` -> Activation App generates `verification_id` -> verify API unlocks | New customer deployment, controlled license issuance |
+| Centralized endpoint onboarding | Registers and enrolls endpoints into the server control plane | Agent/Client runtime enrollment token + heartbeat + event flow | Day-1 onboarding and fleet growth |
+| Integrity and incident monitoring | Detects file/config drift and stores auditable events/alerts | Agent scan + event posting + server alert pipeline | Continuous endpoint monitoring |
+| Admin/SOC operational console | Gives role-based operations for dashboard, alerts, security, governance and ops modules | Bundled admin frontend served by server EXE (or separate dev frontend) | Daily SOC + admin workflows |
+| Remote actions and emergency controls | Executes operational commands on selected endpoints | Remote Actions task pipeline (`lockdown`, `restart`, `shutdown`, `policy_push`) with per-target ack/error | Incident response, endpoint containment |
+| Windows security update push | Triggers Windows update install attempts from server side and captures failure reasons | Remote Actions -> `Policy Push` mode -> `Windows Security Update Push`; agent runs Windows Update flow and reports status | Coordinated LAN patching for Windows endpoints |
+| Patch package lifecycle (controlled) | Stores and tracks approved patch bundles with audit and apply state | Upload/download/apply/rollback path via Patch Updates + backup/audit records | Controlled patch rollout with governance traceability |
+| Device-control safety model | Supports allow-token flow, secure declare, kill-switch and mode rollout controls | Device policy + token issuance/revocation APIs + agent enforcement | USB/device risk control with emergency override |
+| Evidence and audit chain | Preserves action trail and evidence references for review | Audit service + evidence vault modules | Compliance, forensics, post-incident review |
+| AI anomaly scoring (Isolation Forest available) | Scores endpoint behavior for anomaly risk | Train model (`/ai/train`) then run scoring (`/ai/score/run`) and review `/ai/scores` | Risk triage after baseline period |
+| Activation Authority visibility | Tracks activated clients and expiry-near alerts in authority GUI | License Authority `Server Activation` page + activation registry view | Operator-side licensing control and renewals |
+
+Current operational boundaries:
+- Client app/agent does **not** require separate license key entry; trust gate is server-side activation.
+- AI model is **not pre-trained** at first boot; explicit training and scoring runs are required.
+- Windows update push is Windows-only and reports explicit reasons for unsupported/failed targets.
+- Patch rollout is still intentionally controlled/auditable, not blind auto-binary deployment.
+
+---
+
 ## Quick Start in 15 Minutes (Windows EXE First)
 
 ### Dev Flow (fast validation)

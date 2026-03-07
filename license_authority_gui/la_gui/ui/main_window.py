@@ -22,9 +22,9 @@ from PySide6.QtWidgets import (
 from la_gui import __version__
 from la_gui.core.diagnostics_service import DiagnosticsService
 from la_gui.core.settings_service import SettingsService
+from la_gui.ui.feature_flags import ENABLE_SERVER_ACTIVATION
 from la_gui.ui.helpers import show_error, show_info
 from la_gui.ui.lock_overlay import LockOverlayDialog
-from la_gui.ui.preview_dialog import confirm_export_preview
 from la_gui.ui.pages.audit_log_page import AuditLogPage
 from la_gui.ui.pages.audit_viewer_page import AuditViewerPage
 from la_gui.ui.pages.dashboard_page import DashboardPage
@@ -35,6 +35,7 @@ from la_gui.ui.pages.revocation_page import RevocationPage
 from la_gui.ui.pages.root_key_page import RootKeyPage
 from la_gui.ui.pages.server_activation_page import ServerActivationPage
 from la_gui.ui.pages.wizard_page import WizardPage
+from la_gui.ui.preview_dialog import confirm_export_preview
 from la_gui.ui.role_service import can_perform
 from la_gui.ui.settings_dialog import SettingsDialog
 from la_gui.ui.state import SessionState
@@ -54,7 +55,10 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
 
         self.sidebar = QListWidget()
-        self.sidebar.setMaximumWidth(280)
+        self.sidebar.setObjectName("navigation")
+        self.sidebar.setMinimumWidth(250)
+        self.sidebar.setMaximumWidth(320)
+        self.sidebar.setSpacing(4)
         self.stack = QStackedWidget()
 
         self.dashboard_page = DashboardPage(state, self.show_status)
@@ -83,13 +87,25 @@ class MainWindow(QMainWindow):
         header_card = card_frame()
         header_layout = QHBoxLayout(header_card)
         header_layout.setContentsMargins(12, 12, 12, 12)
-        header_layout.addWidget(section_header("ECIMS 2.0 — License Authority Console"))
+        title_layout = QVBoxLayout()
+        title_layout.setSpacing(2)
+        title_layout.addWidget(section_header("ECIMS 2.0 License Authority"))
+        subtitle = QLabel("Offline license activation and signing console")
+        subtitle.setProperty("role", "muted")
+        title_layout.addWidget(subtitle)
+        header_layout.addLayout(title_layout)
         header_layout.addStretch(1)
+
         self.mode_label = QLabel()
         self.role_label = QLabel()
         self.lock_label = QLabel()
         self.version_label = QLabel(f"v{__version__}")
         self.environment_label = QLabel("Offline-ready")
+
+        for label in [self.mode_label, self.role_label, self.lock_label, self.environment_label]:
+            label.setProperty("role", "chip")
+        self.version_label.setProperty("role", "muted")
+
         header_layout.addWidget(self.mode_label)
         header_layout.addWidget(self.role_label)
         header_layout.addWidget(self.lock_label)
@@ -140,8 +156,10 @@ class MainWindow(QMainWindow):
     def _setup_status_widgets(self) -> None:
         self.security_status_label = QLabel()
         self.last_action_label = QLabel("Last action: Ready")
+        self.security_status_label.setProperty("role", "muted")
+        self.last_action_label.setProperty("role", "muted")
 
-        lock_button = QPushButton("LOCK")
+        lock_button = QPushButton("Lock Session")
         lock_button.setProperty("action_id", "root.lock")
         set_danger(lock_button)
         lock_button.clicked.connect(self.force_lock)
@@ -161,19 +179,24 @@ class MainWindow(QMainWindow):
         self._clear_navigation()
 
         self._add_page("Quick Start (Wizard)", self.wizard_page)
+        if ENABLE_SERVER_ACTIVATION:
+            self._add_page("Server Activation", self.activation_page)
+        self._add_page("Root Key Management", self.root_key_page)
+        self._add_page("License Signing", self.license_page)
+
         if self.state.settings.show_advanced_mode:
             self._add_page("Dashboard", self.dashboard_page)
-            self._add_page("Root Key Management", self.root_key_page)
-            self._add_page("License Signing", self.license_page)
-            self._add_page("Server Activation", self.activation_page)
             self._add_page("mTLS CA Management", self.mtls_page)
             self._add_page("Data Key Bundles", self.data_key_page)
             self._add_page("Revocation", self.revocation_page)
+
         self._add_page("Audit Log", self.audit_page)
+
         if self.state.settings.show_advanced_mode:
             self._add_page("Audit Viewer", self.activity_viewer_page)
 
-        self.mode_label.setText("Advanced" if self.state.settings.show_advanced_mode else "Standard")
+        mode = "Advanced" if self.state.settings.show_advanced_mode else "Standard"
+        self.mode_label.setText(f"Mode: {mode}")
         self.role_label.setText(f"Role: {self.state.current_role}")
 
     def _add_page(self, title: str, page: QWidget) -> None:
@@ -186,6 +209,9 @@ class MainWindow(QMainWindow):
             icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DriveHDIcon)
         elif "License" in title:
             icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
+        elif "Server Activation" in title:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton)
+
         item = QListWidgetItem(icon, title)
         self.sidebar.addItem(item)
         idx = self.stack.addWidget(page)
@@ -204,6 +230,9 @@ class MainWindow(QMainWindow):
             self.open_page_by_name("Quick Start (Wizard)")
 
     def _on_page_changed(self, index: int) -> None:
+        if index < 0:
+            return
+
         self.stack.setCurrentIndex(index)
         page = self.stack.currentWidget()
         refresh: Callable[[], None] | None = getattr(page, "refresh", None)
@@ -273,16 +302,26 @@ class MainWindow(QMainWindow):
     def apply_role_permissions(self) -> None:
         for button in self.findChildren(QPushButton):
             action_id = button.property("action_id")
-            if action_id:
-                allowed, reason = self.permission_for(str(action_id))
-                button.setEnabled(button.isEnabled() and allowed)
-                if not allowed and reason:
-                    button.setToolTip(reason)
+            if not action_id:
+                continue
+
+            base_enabled = button.property("base_enabled")
+            if base_enabled is None:
+                base_enabled = button.isEnabled()
+                button.setProperty("base_enabled", base_enabled)
+
+            allowed, reason = self.permission_for(str(action_id))
+            button.setEnabled(bool(base_enabled) and allowed)
+            button.setToolTip(reason if not allowed and reason else "")
+
+        action_base_enabled = self.export_diag_action.property("base_enabled")
+        if action_base_enabled is None:
+            action_base_enabled = self.export_diag_action.isEnabled()
+            self.export_diag_action.setProperty("base_enabled", action_base_enabled)
 
         allowed, reason = self.permission_for(str(self.export_diag_action.property("action_id")))
-        self.export_diag_action.setEnabled(allowed)
-        if not allowed and reason:
-            self.export_diag_action.setToolTip(reason)
+        self.export_diag_action.setEnabled(bool(action_base_enabled) and allowed)
+        self.export_diag_action.setToolTip(reason if not allowed and reason else "")
 
     def show_status(self, message: str) -> None:
         self.state.last_action = message
@@ -293,9 +332,9 @@ class MainWindow(QMainWindow):
     def update_security_status(self) -> None:
         root = "present" if self.state.root_private_key_path.exists() else "missing"
         ca = "present" if self.state.storage_paths.mtls_ca_cert_path.exists() else "missing"
-        lock = "UNLOCKED" if self.state.is_unlocked else "LOCKED"
-        self.lock_label.setText(lock)
-        self.security_status_label.setText(f"State: {lock} | Root: {root} | CA: {ca}")
+        lock = "Unlocked" if self.state.is_unlocked else "Locked"
+        self.lock_label.setText(f"Session: {lock}")
+        self.security_status_label.setText(f"State: {lock} | Root key: {root} | mTLS CA: {ca}")
         self.role_label.setText(f"Role: {self.state.current_role}")
 
     def force_lock(self, reason: str = "Manual lock") -> None:

@@ -33,11 +33,19 @@ class WizardPage(QWidget):
         self.current_step_index = 0
         self.steps: list[StepStatus] = []
 
-        self.step_indicator = QLabel("Step 1")
+        self.step_indicator = QLabel("Progress: 0/0")
+        self.step_indicator.setProperty("role", "muted")
+
+        self.guide_label = QLabel("Follow steps from top to bottom. Use the action button in each row.")
+        self.guide_label.setProperty("role", "muted")
+        self.guide_label.setWordWrap(True)
+
         self.progress = QProgressBar()
         self.grid = QGridLayout()
+        self.grid.setHorizontalSpacing(10)
+        self.grid.setVerticalSpacing(8)
 
-        self.next_btn = QPushButton("Next Incomplete Step")
+        self.next_btn = QPushButton("Open Next Pending Step")
         self.next_btn.setProperty("action_id", "wizard.next")
         set_primary(self.next_btn)
         self.next_btn.clicked.connect(self._next_incomplete_step)
@@ -50,7 +58,8 @@ class WizardPage(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(12, 12, 12, 12)
         card_layout.setSpacing(10)
-        card_layout.addWidget(section_header("Quick Start (Wizard)"))
+        card_layout.addWidget(section_header("Quick Start Wizard"))
+        card_layout.addWidget(self.guide_label)
         card_layout.addWidget(self.step_indicator)
         card_layout.addWidget(self.progress)
         card_layout.addLayout(self.grid)
@@ -68,20 +77,34 @@ class WizardPage(QWidget):
         self.steps = evaluate_steps(snapshot, self.state.settings)
 
         ok_count = sum(1 for s in self.steps if s.status == "OK")
-        self.progress.setMaximum(len(self.steps))
+        total_count = len(self.steps)
+        self.progress.setMaximum(total_count if total_count else 1)
         self.progress.setValue(ok_count)
-        self.progress.setFormat(f"{ok_count}/{len(self.steps)} steps OK")
+        self.progress.setFormat(f"{ok_count}/{total_count} steps completed")
 
-        for row, step in enumerate(self.steps):
-            self.grid.addWidget(QLabel(f"{row + 1}. {step.label}"), row, 0)
-            self.grid.addWidget(QLabel(step.status), row, 1)
-            self.grid.addWidget(QLabel(step.details), row, 2)
+        headers = ["Step", "Status", "Details", "Action"]
+        for col, text in enumerate(headers):
+            label = QLabel(text)
+            label.setProperty("role", "tableHeader")
+            self.grid.addWidget(label, 0, col)
+
+        for row, step in enumerate(self.steps, start=1):
+            self.grid.addWidget(QLabel(f"{row}. {step.label}"), row, 0)
+
+            status_label = QLabel(self._display_status(step.status))
+            status_label.setProperty("status", self._status_variant(step.status))
+            self.grid.addWidget(status_label, row, 1)
+
+            details_label = QLabel(self._friendly_details(step))
+            details_label.setWordWrap(True)
+            details_label.setProperty("role", "muted")
+            self.grid.addWidget(details_label, row, 2)
 
             action_id = self._action_id(step.key)
             button = QPushButton(self._action_text(step.key))
             button.setProperty("action_id", action_id)
             set_primary(button)
-            if step.key in {"offline", "audit"}:
+            if step.key in {"offline", "audit", "mtls_ca", "mtls_sign", "data_key"}:
                 set_secondary(button)
 
             allowed, reason = self.permission_callback(action_id)
@@ -92,35 +115,86 @@ class WizardPage(QWidget):
             button.clicked.connect(lambda _=False, key=step.key: self._run_action(key))
             self.grid.addWidget(button, row, 3)
 
-        self.current_step_index = next((i for i, step in enumerate(self.steps) if step.status != "OK"), len(self.steps) - 1)
-        self.step_indicator.setText(f"Current step: {self.current_step_index + 1}/{len(self.steps)}")
+        self.current_step_index = self._next_actionable_index()
+        if not self.steps:
+            self.step_indicator.setText("Progress: no setup steps available")
+            self.next_btn.setEnabled(False)
+            return
 
-        action_id = self._action_id(self.steps[self.current_step_index].key) if self.steps else "wizard.next"
+        current_step = self.steps[self.current_step_index]
+        self.step_indicator.setText(
+            f"Progress: {ok_count}/{total_count} completed. Next: Step {self.current_step_index + 1} - {current_step.label}"
+        )
+
+        action_id = self._action_id(current_step.key)
         allowed, reason = self.permission_callback(action_id)
-        can_next = bool(self.steps) and self.current_step_index < len(self.steps) and self.steps[self.current_step_index].enabled and allowed
+        can_next = current_step.status != "OK" and current_step.enabled and allowed
         self.next_btn.setEnabled(can_next)
-        if not allowed and reason:
-            self.next_btn.setToolTip(reason)
+        self.next_btn.setToolTip(reason if not allowed and reason else "")
+
+    def _next_actionable_index(self) -> int:
+        if not self.steps:
+            return 0
+
+        for idx, step in enumerate(self.steps):
+            if step.status != "OK" and step.enabled:
+                return idx
+
+        for idx, step in enumerate(self.steps):
+            if step.status != "OK":
+                return idx
+
+        return len(self.steps) - 1
+
+    def _display_status(self, status: str) -> str:
+        return {
+            "OK": "Done",
+            "Missing": "Required",
+            "Locked": "Unlock Needed",
+            "Needs Input": "Pending",
+        }.get(status, status)
+
+    def _status_variant(self, status: str) -> str:
+        return {
+            "OK": "ok",
+            "Missing": "warn",
+            "Locked": "warn",
+            "Needs Input": "pending",
+        }.get(status, "pending")
+
+    def _friendly_details(self, step: StepStatus) -> str:
+        return {
+            "offline": "Save offline acknowledgment once per environment.",
+            "root": "Generate or unlock your root signing key.",
+            "license": "Create the signed license file for the target server.",
+            "mtls_ca": "Optional: create local mTLS CA certificate.",
+            "mtls_sign": "Optional: sign agent CSR using mTLS CA.",
+            "data_key": "Optional: generate data key bundle for encryption.",
+            "bundle": "Export activation package to share with server.",
+            "audit": "Run audit chain verification for compliance.",
+        }.get(step.key, step.details)
 
     def _next_incomplete_step(self) -> None:
         if not self.steps:
             return
+        self.current_step_index = self._next_actionable_index()
         step = self.steps[self.current_step_index]
         if step.status == "OK" or not step.enabled:
+            show_info(self, "Quick Start", "All required actionable steps are complete.")
             return
         self._run_action(step.key)
 
     def _action_text(self, key: str) -> str:
         return {
             "offline": "Acknowledge",
-            "root": "Open Root Key",
+            "root": "Open Root Keys",
             "license": "Open License",
             "mtls_ca": "Open mTLS",
-            "mtls_sign": "Open CSR Sign",
+            "mtls_sign": "Open mTLS",
             "data_key": "Open Data Keys",
             "bundle": "Export Bundle",
             "audit": "Verify Audit",
-        }.get(key, "Action")
+        }.get(key, "Open")
 
     def _action_id(self, key: str) -> str:
         return {
@@ -154,6 +228,7 @@ class WizardPage(QWidget):
                 self.bundle_export_callback()
             elif key == "audit":
                 self.verify_audit_callback()
+
             self.state.activity_log.append(
                 actor_role=self.state.current_role,
                 mode="Advanced" if self.state.settings.show_advanced_mode else "Standard",

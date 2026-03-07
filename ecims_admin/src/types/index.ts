@@ -4,6 +4,47 @@ export interface LoginResponse {
   must_reset_password?: boolean;
 }
 
+export interface LicenseActivationStatus {
+  activation_required: boolean;
+  is_activated: boolean;
+  activated?: Record<string, unknown> | null;
+  pending_request?: {
+    request_code?: string;
+    installation_id?: string;
+    expires_at?: string;
+    machine_fingerprint_short?: string;
+  } | null;
+  license_valid?: boolean;
+  license_reason?: string | null;
+  license_id?: string | null;
+  machine_match?: boolean | null;
+  local_fingerprint_short?: string | null;
+}
+
+export interface LicenseActivationLicenseKeyResponse {
+  status: string;
+  license_id?: string | null;
+  installation_id?: string | null;
+  request_code?: string | null;
+  expires_at?: string | null;
+  machine_fingerprint_short?: string | null;
+}
+
+export interface LicenseActivationRequestResponse {
+  status: string;
+  license_id?: string | null;
+  installation_id?: string | null;
+  request_code?: string | null;
+  expires_at?: string | null;
+  activation?: Record<string, unknown> | null;
+}
+
+export interface LicenseActivationVerifyResponse {
+  status: string;
+  license_state?: Record<string, unknown>;
+  activation?: Record<string, unknown>;
+}
+
 export interface User {
   id: number;
   username: string;

@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -39,8 +40,12 @@ class LicenseSigningPage(QWidget):
         self._pending_payload: LicensePayload | None = None
 
         self.customer_input = QLineEdit()
-        self.max_agents_input = QLineEdit()
-        self.max_agents_input.setPlaceholderText("e.g. 25")
+        self.customer_input.setPlaceholderText("Customer or organization name")
+
+        self.max_agents_input = QSpinBox()
+        self.max_agents_input.setMinimum(1)
+        self.max_agents_input.setMaximum(100000)
+        self.max_agents_input.setValue(25)
 
         self.expires_at_input = QDateEdit()
         self.expires_at_input.setCalendarPopup(True)
@@ -121,7 +126,7 @@ class LicenseSigningPage(QWidget):
             customer=self.customer_input.text().strip(),
             issued_at=issued_at,
             expires_at=expires_at,
-            max_agents=int(self.max_agents_input.text().strip()),
+            max_agents=int(self.max_agents_input.value()),
             server_id=self.server_id_input.text().strip() or None,
             features=features,
             public_key_fingerprint=self.state.public_key_fingerprint,

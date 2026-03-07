@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from la_gui.core.activation_service import ActivationService
+from la_gui.ui.feature_flags import ENABLE_SERVER_ACTIVATION
 from la_gui.ui.helpers import show_error, show_info
 from la_gui.ui.state import SessionState
 from la_gui.ui.style_helpers import card_frame, section_header, set_primary, set_secondary
@@ -27,31 +27,61 @@ class ServerActivationPage(QWidget):
         self.state = state
         self.status_callback = status_callback
         self._parsed_request: dict | None = None
+        self._last_parsed_token = ""
 
-        self.request_input = QTextEdit()
-        self.request_input.setPlaceholderText("Paste request_code from ECIMS server activation screen")
+        self.request_input = QPlainTextEdit()
+        self.request_input.setPlaceholderText("Step 1: Paste request code from ECIMS server activation screen.")
+        self.request_input.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.request_input.textChanged.connect(self._on_request_changed)
 
-        self.parsed_output = QTextEdit()
+        self.parsed_output = QPlainTextEdit()
         self.parsed_output.setReadOnly(True)
-        self.parsed_output.setPlaceholderText("Parsed installation request details will appear here")
+        self.parsed_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.parsed_output.setPlaceholderText("Step 2: Parsed request details will appear here.")
 
-        self.verification_output = QTextEdit()
+        self.verification_output = QPlainTextEdit()
         self.verification_output.setReadOnly(True)
-        self.verification_output.setPlaceholderText("Generated verification ID token appears here")
+        self.verification_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.verification_output.setPlaceholderText("Step 3: Generated verification ID token appears here.")
 
         self.expiry_notice = QLabel("No upcoming license expiry alerts.")
-        self.registry_output = QTextEdit()
+        self.expiry_notice.setWordWrap(True)
+        self.registry_output = QPlainTextEdit()
         self.registry_output.setReadOnly(True)
+        self.registry_output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.registry_output.setPlaceholderText("Activated client records will appear here.")
 
-        parse_btn = QPushButton("Parse Request Code")
-        parse_btn.setProperty("action_id", "activation.parse")
-        set_secondary(parse_btn)
-        parse_btn.clicked.connect(self.parse_request_code)
+        paste_btn = QPushButton("Paste from Clipboard")
+        set_secondary(paste_btn)
+        paste_btn.clicked.connect(self.paste_from_clipboard)
 
-        generate_btn = QPushButton("Generate Verification ID")
-        generate_btn.setProperty("action_id", "activation.verify.generate")
-        set_primary(generate_btn)
-        generate_btn.clicked.connect(self.generate_verification_id)
+        clear_btn = QPushButton("Clear")
+        set_secondary(clear_btn)
+        clear_btn.clicked.connect(self.clear_inputs)
+
+        self.parse_btn = QPushButton("Parse Request")
+        self.parse_btn.setProperty("action_id", "activation.parse")
+        set_secondary(self.parse_btn)
+        self.parse_btn.clicked.connect(self.parse_request_code)
+
+        self.generate_btn = QPushButton("Generate Verification ID")
+        self.generate_btn.setProperty("action_id", "activation.verify.generate")
+        set_primary(self.generate_btn)
+        self.generate_btn.clicked.connect(self.generate_verification_id)
+
+        copy_btn = QPushButton("Copy Verification ID")
+        set_secondary(copy_btn)
+        copy_btn.clicked.connect(self.copy_verification_id)
+
+        if not ENABLE_SERVER_ACTIVATION:
+            disabled_msg = "Temporarily disabled: Server activation key generation is turned off."
+            self.request_input.setPlainText(disabled_msg)
+            self.request_input.setReadOnly(True)
+            self.parsed_output.setReadOnly(True)
+            self.verification_output.setReadOnly(True)
+            self.expiry_notice.setText(disabled_msg)
+            for btn in [paste_btn, clear_btn, self.parse_btn, self.generate_btn, copy_btn]:
+                btn.setEnabled(False)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -62,59 +92,115 @@ class ServerActivationPage(QWidget):
         card_layout.setContentsMargins(12, 12, 12, 12)
         card_layout.setSpacing(10)
         card_layout.addWidget(section_header("Server Activation"))
-        card_layout.addWidget(
-            QLabel(
-                "Flow: import license on server -> copy request_code -> generate verification ID here -> paste back on server."
-            )
+        flow_label = QLabel(
+            "Simple flow: 1) Paste request code, 2) Parse request, 3) Generate verification ID, 4) Copy it back to server."
         )
+        flow_label.setProperty("role", "muted")
+        flow_label.setWordWrap(True)
+        card_layout.addWidget(flow_label)
+        card_layout.addWidget(QLabel("Request Code"))
         card_layout.addWidget(self.request_input)
 
-        actions = QHBoxLayout()
-        actions.addWidget(parse_btn)
-        actions.addWidget(generate_btn)
-        card_layout.addLayout(actions)
+        request_actions = QHBoxLayout()
+        request_actions.addWidget(paste_btn)
+        request_actions.addWidget(clear_btn)
+        request_actions.addStretch(1)
+        request_actions.addWidget(self.parse_btn)
+        request_actions.addWidget(self.generate_btn)
+        card_layout.addLayout(request_actions)
 
         card_layout.addWidget(QLabel("Request Details"))
         card_layout.addWidget(self.parsed_output)
         card_layout.addWidget(QLabel("Verification ID"))
         card_layout.addWidget(self.verification_output)
+        verification_actions = QHBoxLayout()
+        verification_actions.addStretch(1)
+        verification_actions.addWidget(copy_btn)
+        card_layout.addLayout(verification_actions)
         card_layout.addWidget(self.expiry_notice)
         card_layout.addWidget(QLabel("Activated Client Registry"))
         card_layout.addWidget(self.registry_output)
         layout.addWidget(card)
 
     def refresh(self) -> None:
+        if not ENABLE_SERVER_ACTIVATION:
+            return
         self._refresh_registry_view()
 
+    def _on_request_changed(self) -> None:
+        current = self.request_input.toPlainText().strip()
+        if current == self._last_parsed_token:
+            return
+        self._parsed_request = None
+
+    def paste_from_clipboard(self) -> None:
+        if not ENABLE_SERVER_ACTIVATION:
+            return
+        text = QApplication.clipboard().text().strip()
+        if not text:
+            show_error(self, "Clipboard Empty", "Clipboard does not contain request code text.")
+            return
+        self.request_input.setPlainText(text)
+        self.status_callback("Request code pasted from clipboard.")
+
+    def clear_inputs(self) -> None:
+        self.request_input.clear()
+        self.parsed_output.clear()
+        self.verification_output.clear()
+        self._parsed_request = None
+        self._last_parsed_token = ""
+        self.status_callback("Activation inputs cleared.")
+
+    def copy_verification_id(self) -> None:
+        verification_id = self.verification_output.toPlainText().strip()
+        if not verification_id:
+            show_error(self, "Missing Verification ID", "Generate verification ID first.")
+            return
+        QApplication.clipboard().setText(verification_id)
+        self.status_callback("Verification ID copied to clipboard.")
+
+    def _render_request_details(self, payload: dict) -> str:
+        return "\n".join(
+            [
+                f"Installation ID : {payload.get('installation_id', '-')}",
+                f"License ID      : {payload.get('license_id', '-')}",
+                f"Customer        : {payload.get('customer_name') or '-'}",
+                f"Machine Finger  : {str(payload.get('machine_fingerprint') or '')[:12]}...",
+                f"License Expiry  : {payload.get('license_expiry_date') or '-'}",
+                f"Request Expires : {payload.get('expires_at', '-')}",
+            ]
+        )
+
     def parse_request_code(self) -> None:
+        if not ENABLE_SERVER_ACTIVATION:
+            return
         try:
-            payload = ActivationService.parse_request_code(self.request_input.toPlainText())
+            token = self.request_input.toPlainText().strip()
+            payload = ActivationService.parse_request_code(token)
             self._parsed_request = payload
-            self.parsed_output.setPlainText(
-                "\n".join(
-                    [
-                        f"Installation ID: {payload.get('installation_id')}",
-                        f"License ID: {payload.get('license_id')}",
-                        f"Customer: {payload.get('customer_name') or '-'}",
-                        f"Machine FP: {str(payload.get('machine_fingerprint') or '')[:8]}...",
-                        f"License Expiry: {payload.get('license_expiry_date') or '-'}",
-                        f"Request Expires: {payload.get('expires_at')}",
-                    ]
-                )
-            )
-            self.status_callback("Activation request parsed successfully.")
+            self._last_parsed_token = token
+            self.parsed_output.setPlainText(self._render_request_details(payload))
+            self.status_callback("Request parsed. Review details then generate verification ID.")
         except Exception as exc:  # noqa: BLE001
             self._parsed_request = None
             self.parsed_output.clear()
             show_error(self, "Parse Error", str(exc))
 
     def generate_verification_id(self) -> None:
+        if not ENABLE_SERVER_ACTIVATION:
+            return
         if not self.state.is_unlocked or self.state.private_key is None:
             show_error(self, "Locked", "Unlock root key before generating verification ID.")
             return
-        if self._parsed_request is None:
+        raw_token = self.request_input.toPlainText().strip()
+        if not raw_token:
+            show_error(self, "Missing Request Code", "Paste request code before generating verification ID.")
+            return
+        if self._parsed_request is None or raw_token != self._last_parsed_token:
             try:
-                self._parsed_request = ActivationService.parse_request_code(self.request_input.toPlainText())
+                self._parsed_request = ActivationService.parse_request_code(raw_token)
+                self._last_parsed_token = raw_token
+                self.parsed_output.setPlainText(self._render_request_details(self._parsed_request))
             except Exception as exc:  # noqa: BLE001
                 show_error(self, "Invalid Request", str(exc))
                 return
@@ -154,7 +240,7 @@ class ServerActivationPage(QWidget):
                 self,
                 "Verification ID Generated",
                 (
-                    "Paste this verification ID into server activation screen.\n\n"
+                    "Verification ID is ready. Copy it and paste into server activation screen.\n\n"
                     f"Installation ID: {registry_entry['installation_id']}"
                 ),
             )
@@ -193,10 +279,9 @@ class ServerActivationPage(QWidget):
             self.expiry_notice.setText("No client licenses expiring in next 7 days.")
             return
 
-        now = datetime.now(timezone.utc).isoformat()
         summary = ", ".join(
             [f"{item.get('installation_id', '-')} ({item.get('days_left', '?')}d)" for item in expiring[:10]]
         )
         self.expiry_notice.setText(
-            f"Expiry alert ({now}): {len(expiring)} client license(s) expiring within 7 days -> {summary}"
+            f"Attention: {len(expiring)} client license(s) expiring within 7 days: {summary}"
         )
