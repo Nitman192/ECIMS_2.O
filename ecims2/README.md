@@ -31,6 +31,7 @@ ecims2/
     schemas/
   docs/
     02_Threat_Model.docx
+    ECIMS_Core_Engineering_Handover_Manual_Hinglish.md
     ECIMS_User_Manual.md
     Phase_1_Core_Monitoring.md
   configs/
@@ -735,3 +736,4 @@ In `prod`, startup refuses to run when:
 See `RELEASE.md` for final checklist, backup strategy, kill-switch SOP, offline recovery, and key rotation process.
 For end-to-end local run commands and client GUI workflow, see `docs/Phase_16_Client_Runbook.md`.
 For the full role-based handbook (architecture, workflows, troubleshooting, and comparisons), see `docs/ECIMS_User_Manual.md`.
+For deep developer/producer-level ownership, change strategy, and patch lifecycle handover in Hinglish, see `docs/ECIMS_Core_Engineering_Handover_Manual_Hinglish.md`.
